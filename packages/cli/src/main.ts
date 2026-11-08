@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { SolanaRpc, decodeAccountData, decodeTokenAccount } from "@bark/solana";
 import { decodePool } from "@bark/pumpswap";
+import { GoPlusVenue, JupiterSwapV2Venue, securityFactors } from "@bark/venues";
 import { renderPool } from "./pool.js";
+import { renderOrder, renderRisk } from "./providers.js";
 import {
   decodeBondingCurve,
   deriveBondingCurveAddress,
@@ -24,6 +26,8 @@ const USAGE = [
   "  bark-recon curve <mint-or-curve-address> [--rpc <url>] [--json]",
   "  bark-recon holders <mint> [--rpc <url>] [--json]",
   "  bark-recon pool <pool-address> [--rpc <url>] [--json]",
+  "  bark-recon quote <inputMint> <outputMint> <amount> [--taker <pubkey>] [--json]",
+  "  bark-recon risk <mint> [--json]",
   "  bark-recon watch [--seconds 30] [--json]",
   "",
   "Environment:",
@@ -35,9 +39,11 @@ const USAGE = [
 interface Args {
   command: string;
   target: string;
+  extra: string[];
   rpcUrl: string;
   json: boolean;
   seconds: number;
+  taker: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -45,6 +51,7 @@ function parseArgs(argv: string[]): Args {
   let rpcUrl = process.env.SOLANA_RPC_URL ?? "";
   let json = false;
   let seconds = 30;
+  let taker = "11111111111111111111111111111111";
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] as string;
@@ -62,6 +69,11 @@ function parseArgs(argv: string[]): Args {
       i += 1;
       continue;
     }
+    if (arg === "--taker") {
+      taker = argv[i + 1] ?? taker;
+      i += 1;
+      continue;
+    }
     if (arg === "--help" || arg === "-h") {
       positional.push("help");
       continue;
@@ -72,9 +84,11 @@ function parseArgs(argv: string[]): Args {
   return {
     command: positional[0] ?? "help",
     target: positional[1] ?? "",
+    extra: positional.slice(2),
     rpcUrl,
     json,
     seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 30,
+    taker,
   };
 }
 
@@ -217,6 +231,50 @@ async function runPool(rpc: SolanaRpc, target: string, json: boolean): Promise<v
   process.stdout.write(renderPool(pool, reserves, { baseDecimals: 6, quoteDecimals: 9 }) + String.fromCharCode(10));
 }
 
+async function runQuote(
+  inputMint: string,
+  outputMint: string,
+  amount: string,
+  taker: string,
+  json: boolean,
+): Promise<void> {
+  const venue = new JupiterSwapV2Venue();
+  const order = await venue.order({
+    inputMint,
+    outputMint,
+    amount: BigInt(amount),
+    taker,
+    slippageBps: 50,
+  });
+  if (json) {
+    process.stdout.write(JSON.stringify({
+      inAmount: order.inAmount.toString(),
+      outAmount: order.outAmount.toString(),
+      otherAmountThreshold: order.otherAmountThreshold.toString(),
+      priceImpact: order.priceImpact,
+      totalLamportCost: order.totalLamportCost.toString(),
+      lastValidBlockHeight: order.lastValidBlockHeight.toString(),
+      route: order.routePlan.map((step) => step.label),
+    }, null, 2) + String.fromCharCode(10));
+    return;
+  }
+  process.stdout.write(renderOrder(order, null) + String.fromCharCode(10));
+}
+
+async function runRisk(mint: string, json: boolean): Promise<void> {
+  const venue = new GoPlusVenue();
+  const security = await venue.tokenSecurity(mint);
+  if (security === null) {
+    fail("no security record for " + mint, 1);
+  }
+  const factors = securityFactors(security);
+  if (json) {
+    process.stdout.write(JSON.stringify({ security, factors }, null, 2) + String.fromCharCode(10));
+    return;
+  }
+  process.stdout.write(renderRisk(security, factors) + String.fromCharCode(10));
+}
+
 async function runWatch(seconds: number, json: boolean): Promise<void> {
   const launches: string[] = [];
   const watcher = new PumpLaunchWatcher({
@@ -284,6 +342,20 @@ async function main(): Promise<void> {
     }
     if (args.command === "holders") {
       await runHolders(rpc, args.target, args.json);
+      return;
+    }
+    if (args.command === "quote") {
+      const inputMint = args.target;
+      const outputMint = args.extra[0] ?? "";
+      const amount = args.extra[1] ?? "";
+      if (outputMint === "" || amount === "") {
+        fail("usage: bark-recon quote <inputMint> <outputMint> <amount> [--taker <pubkey>]", 2);
+      }
+      await runQuote(inputMint, outputMint, amount, args.taker, args.json);
+      return;
+    }
+    if (args.command === "risk") {
+      await runRisk(args.target, args.json);
       return;
     }
     if (args.command === "pool") {
