@@ -43,6 +43,9 @@ rules - what bags.fm, Moonshot, Axiom and fomo actually run on, and what that im
 and a [launchpad landscape](docs/launchpad-landscape.md) covering 28 launchpad projects, of which
 four have a reachable product and the rest leave no trace.
 
+Provider adoption is tracked in [docs/providers.md](docs/providers.md): which of the recommended
+managed providers answer without a key, which need one, and where the execution boundary sits.
+
 ---
 
 ## Evidence over assertion
