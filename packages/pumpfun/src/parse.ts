@@ -5,18 +5,17 @@ import { decodeTradeEvent, type TradeEvent } from "./events.js";
 /**
  * Transaction parsing.
  *
- * Strategy: read the program's own log stream. pump.fun emits both
- * "Program log: Instruction: <Name>" markers and base64 "Program data:" event
- * blobs, so the log stream alone is enough to reconstruct what happened -
- * without decoding instruction arguments, which change between versions.
+ * Strategy: decode the program's own events, never its instruction arguments.
+ * The instruction surface changes between program versions (and now goes
+ * through a router), while the TradeEvent payload stays decodable.
  *
- * Newer transactions additionally carry the same event through an emit_cpi
- * instruction. Those are used as a fallback only, so a trade is never counted
- * twice.
+ * Events arrive twice in current transactions: as a base64 "Program data:" log
+ * line, and inside an emit_cpi instruction. Logs are read first and inner
+ * instructions are only consulted when no log event exists, so a trade is
+ * never counted twice.
  */
 
 const PROGRAM_DATA_PREFIX = "Program data: ";
-const INSTRUCTION_PREFIX = "Program log: Instruction: ";
 
 export interface PumpTrade {
   signature: string;
@@ -53,12 +52,8 @@ function tradeKey(trade: { mint: PublicKey; user: PublicKey; solAmount: bigint }
 function toPumpTrade(
   event: TradeEvent,
   context: { signature: string; slot: number; blockTime: number | null },
-  fallbackKind: "buy" | "sell" | null,
 ): PumpTrade {
   const kind = event.isBuy ? "buy" : "sell";
-  if (fallbackKind !== null && fallbackKind !== kind) {
-    // The log stream is authoritative; keep going but prefer the event.
-  }
   return {
     signature: context.signature,
     slot: context.slot,
@@ -81,23 +76,6 @@ function toPumpTrade(
 
 function decodeBase64(value: string): Uint8Array {
   return new Uint8Array(Buffer.from(value, "base64"));
-}
-
-function instructionKind(line: string): "buy" | "sell" | "create" | null {
-  if (!line.startsWith(INSTRUCTION_PREFIX)) {
-    return null;
-  }
-  const name = line.slice(INSTRUCTION_PREFIX.length).trim();
-  if (name.endsWith("Create")) {
-    return "create";
-  }
-  if (name.endsWith("Buy")) {
-    return "buy";
-  }
-  if (name.endsWith("Sell")) {
-    return "sell";
-  }
-  return null;
 }
 
 export interface ParseOptions {
@@ -124,14 +102,8 @@ export function parsePumpTransaction(
 
   const trades: PumpTrade[] = [];
   const seen = new Set<string>();
-  let pendingKind: "buy" | "sell" | null = null;
 
   for (const line of logs) {
-    const kind = instructionKind(line);
-    if (kind !== null) {
-      pendingKind = kind === "create" ? null : kind;
-      continue;
-    }
     if (!line.startsWith(PROGRAM_DATA_PREFIX)) {
       continue;
     }
@@ -156,7 +128,7 @@ export function parsePumpTransaction(
     }
     try {
       const event = decodeTradeEvent(payload);
-      const trade = toPumpTrade(event, { signature, slot, blockTime }, pendingKind);
+      const trade = toPumpTrade(event, { signature, slot, blockTime });
       const key = tradeKey(trade);
       if (!seen.has(key)) {
         seen.add(key);
@@ -233,7 +205,7 @@ function collectFromInnerInstructions(
       }
       try {
         const event = decodeTradeEvent(payload.slice(8));
-        const trade = toPumpTrade(event, context, null);
+        const trade = toPumpTrade(event, context);
         const key = tradeKey(trade);
         if (!seen.has(key)) {
           seen.add(key);
