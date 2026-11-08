@@ -93,6 +93,8 @@ computes. A score with no factors is a vendor opinion wearing a percentage sign.
 - analyseConcentration behind the holders panel
 - WalletClusterer behind "related wallets"
 - detectBundles + assessRisk behind the risk badge, with factors exposed in the same response
+- findLookalikes over the live launch feed: homoglyph folding and edit distance, returning the
+  rule that matched so the UI can say *why* a token looks like another
 
 **Venue layer**
 
@@ -103,7 +105,7 @@ computes. A score with no factors is a vendor opinion wearing a percentage sign.
 
 ## Testing strategy
 
-The suite is offline and deterministic: **134 tests, no network**.
+The suite is offline and deterministic: **142 tests, no network**.
 
 Three tiers:
 

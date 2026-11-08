@@ -9,5 +9,6 @@ export * from "./bundles.js";
 export * from "./clusters.js";
 export * from "./dev.js";
 export * from "./holders.js";
+export * from "./lookalike.js";
 export * from "./risk.js";
 export * from "./snapshot.js";

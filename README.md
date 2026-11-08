@@ -69,7 +69,7 @@ npm run build
 npm test
 ~~~
 
-All 134 tests run offline. No API keys, no RPC endpoint, no network.
+All 142 tests run offline. No API keys, no RPC endpoint, no network.
 
 Then, against a live endpoint:
 
@@ -155,6 +155,9 @@ const risk = assessRisk({ concentration, bundles, liquidityUsd, holderCount });
 - Concentration must be computed from balances with infrastructure accounts excluded by the
   caller - the provider cannot know which account is the pool.
 - Bundle detection needs a *reason* string, not just a boolean. Users do not trust unexplained flags.
+- Impersonation is a daily event, not an edge case: during one 50-second monitoring session two
+  different tokens launched with the same symbol and name. Lookalike detection belongs in the
+  discovery feed, with the matching rule shown.
 - Risk should be a transparent weighted sum of named factors. If the number cannot be explained,
   it does not belong in the product.
 
