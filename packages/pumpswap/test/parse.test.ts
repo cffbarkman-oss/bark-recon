@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { fromHex } from "@bark/solana";
+import { decodeSwapEvent } from "../src/events.js";
 import { parseAmmTransaction } from "../src/parse.js";
 import { AMM_CAPTURE } from "./fixtures.js";
 
@@ -25,7 +27,9 @@ test("parses the captured sell into one swap", () => {
   assert.equal(swap.baseAmount, 1_140_772_847_528n);
   assert.equal(swap.quoteAmount, 8_415_430_628n);
   assert.equal(swap.userQuoteAmount, 8_331_276_320n);
-  assert.equal(swap.unverified, false);
+  const decoded = decodeSwapEvent(fromHex(AMM_CAPTURE.sellEventHex));
+  assert.ok(decoded !== null && decoded.layout === "sell");
+  assert.equal(swap.poolVirtualQuoteReserves, decoded.virtualQuoteReserves);
 });
 
 test("returns nothing for unrelated logs", () => {

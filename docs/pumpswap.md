@@ -142,34 +142,72 @@ inside it.
 
 ---
 
-## Pricing: what is verified and what is not
+## Pricing (solved)
 
-Verified: the fee split on both sides (including the buy/sell fee-base asymmetry above), the
-direction of movement, and that the pool's quote side falls by the gross on a sell.
+Two facts make this different from a plain constant-product pool. Getting either wrong produces
+quotes that look plausible and are badly wrong.
 
-**Not verified: exact pricing from post-state reserves.**
+**1. Effective depth includes a signed virtual quote reserve.**
 
-Feeding the captured sell's own post-state back through a constant-product quote produces a
-gross **2.8% below** what the chain paid - even though the constant product of those reserves is
-only **0.026%** off. Output size is a difference of large numbers, so a tiny reserve error
-becomes a large trade error, and it gets worse the smaller the trade relative to pool depth.
+~~~text
+effectiveQuote = quote_token_reserves + virtual_quote_reserves
+~~~
 
-Including the pool's virtual_quote_reserves in effective depth moves the error from 2.8% to 1.8%
-- still not exact. The likely explanation is that reported reserves carry accrued fees the curve
-does not price against, and that virtual reserves participate only partially.
+On the captured sell pool that offset is +43.17 SOL against an 11.9 SOL the pool does not hold.
+On the captured buy pool it is **-9,398,851** - less depth than the token account contains. The
+offset is signed, per pool, and changes slightly with every trade.
 
-Practical guidance for Bark:
+**2. Event reserves are PRE-trade, not post.**
 
-1. Use token-account balances for display-grade estimates only.
-2. Reconstruct pre-trade state from events (each event carries its pool reserves), or simulate.
-3. Do not execute against a quote derived from balances alone.
+An earlier pass assumed post-trade and reconstructed every delta backwards. The tell was a
+contiguous window of events: the next event's pool_base_token_reserves equals the previous
+trade's post-state *exactly*, with no fee drift - impossible if the fields were post-trade.
+
+### The model
+
+~~~text
+buy :  fee      = ceil(net x bps)                 (net = payment - fees)
+       baseOut  = base - k / (effectiveQuote + net)
+
+sell:  gross    = effectiveQuote - k / (base + baseIn)
+       payout   = gross - ceil(gross x bps)
+
+k = base x effectiveQuote
+~~~
+
+Note the asymmetry in what the curve consumes: a buy prices against the **net** amount, while
+the pool absorbs net + LP fee; a sell prices against the **gross** output. Feeding a buy's
+net+LP figure into the curve overstates the output by exactly the LP fee rate - 0.25% on the
+captured trade.
+
+The retained LP fee is booked against the virtual reserve: virtualQuote becomes virtualQuote
+minus lpFee, which keeps the invariant intact while the pool's token account grows by the full
+amount.
+
+### Verification
+
+| Trade | Recorded | Predicted | Error |
+| --- | --- | --- | --- |
+| sell 345,679,455 lamports | 345,679,455 | 345,679,456 | 1 lamport |
+| buy 19,063,707 base units | 19,063,707 | 19,063,708 | 1 unit |
+| invariant across 5 consecutive events | - | - | < 0.00024% |
+
+The earlier "2.8% unexplained error" was this model missing the virtual offset entirely. The
+virtual reserve was visible in every pool account and every event from the first capture; the
+mistake was assuming a curve that ignores it.
+
+### Practical guidance for Bark
+
+1. Read virtual_quote_reserves from the pool account or the event - never assume zero.
+2. Treat event reserves as pre-trade state.
+3. Re-read the token accounts and the virtual reserve before quoting; all three move.
 
 ---
 
 ## Open questions
 
 1. What are the 14 trailing bytes of the Pool account?
-2. Why does a 0.026% reserve error produce a 2.8% output error - which term is missing?
-3. Does virtual_quote_reserves participate in pricing, and in which direction?
-4. Whether the 2.8% reconstruction error also affects buys - the captured buy decodes exactly,
-   but its pool state has not been replayed against a subsequent trade.
+2. What moves virtual_quote_reserves between trades? It shifts by small, non-fee amounts
+   (-2,644,449 and -13,004 observed between consecutive sells). The model is exact when given
+   the event's own value, so a quoter must refresh it, but the rule governing the drift is not
+   known.

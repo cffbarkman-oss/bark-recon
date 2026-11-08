@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fromHex } from "@bark/solana";
 import { decodeSwapEvent } from "../src/events.js";
-import { DEFAULT_AMM_FEES, quoteBuy, quoteSell, spotPrice } from "../src/math.js";
+import { DEFAULT_AMM_FEES, effectiveQuote, quoteBuy, quoteSell, spotPrice } from "../src/math.js";
 import { AMM_CAPTURE } from "./fixtures.js";
 
 const event = decodeSwapEvent(fromHex(AMM_CAPTURE.sellEventHex));
@@ -10,40 +10,35 @@ if (event === null || event.layout !== "sell") {
   throw new Error("fixture must be a sell event");
 }
 
-// Reconstruct the pre-trade pool. A sell adds base and removes gross quote,
-// so: base = post - baseIn, quote = post + grossQuote.
+/** The event reports the pool's reserves BEFORE the swap. */
 const preReserves = {
-  base: event.poolBaseTokenReserves - event.baseAmountIn,
-  quote: event.poolQuoteTokenReserves + event.quoteAmountOut,
+  base: event.poolBaseTokenReserves,
+  quote: event.poolQuoteTokenReserves,
+  virtualQuote: event.virtualQuoteReserves,
 };
 
-test("matches the captured sell's direction, fees and net", () => {
+test("reproduces the captured sell to the lamport", () => {
   const quote = quoteSell(preReserves, event.baseAmountIn);
 
-  assert.equal(quote.reservesAfter.base, event.poolBaseTokenReserves);
-  assert.equal(quote.netQuote <= quote.grossQuote, true);
-  assert.ok(quote.grossQuote > 0n);
-
-  // Fees are computed from this model's own gross, so compare the *ratio* the
-  // program charged rather than the absolute lamports.
-  const gross = event.quoteAmountOut;
-  assert.equal(event.lpFee, (gross * 20n + 9_999n) / 10_000n);
-  assert.equal(event.protocolFee, (gross * 5n + 9_999n) / 10_000n);
-  assert.equal(event.coinCreatorFee, (gross * 75n + 9_999n) / 10_000n);
+  assert.equal(quote.reservesAfter.base, event.poolBaseTokenReserves + event.baseAmountIn);
+  assert.ok(
+    absDiff(quote.grossQuote, event.quoteAmountOut) <= 1n,
+    "gross drifted: " + quote.grossQuote.toString() + " vs " + event.quoteAmountOut.toString(),
+  );
 });
 
-test("recomputing a trade from post-state reserves is a bounded estimate", () => {
-  // Documented limitation: reported reserves carry accrued fees, so a single
-  // trade cannot be reconstructed exactly. This test pins the size of that
-  // error so a regression that makes it worse fails loudly.
-  const quote = quoteSell(preReserves, event.baseAmountIn);
-  const error = Math.abs(Number(quote.grossQuote - event.quoteAmountOut));
-  const relative = error / Number(event.quoteAmountOut);
-  assert.ok(relative < 0.05, "estimate drifted further than 5%: " + relative);
+test("virtual reserves are a large part of the effective depth", () => {
+  const eff = effectiveQuote(preReserves);
+  assert.equal(eff, event.poolQuoteTokenReserves + event.virtualQuoteReserves);
+  const share = Number(event.virtualQuoteReserves) / Number(eff);
+  assert.ok(share > 0.02, "virtual depth should be a material share, got " + share);
+});
 
-  const kPost = Number(quote.reservesAfter.base * quote.reservesAfter.quote);
-  const kPre = Number(preReserves.base * preReserves.quote);
-  assert.ok(Math.abs(kPost / kPre - 1) < 0.01, "constant product should be near-preserved");
+test("ignoring virtual depth would distort the quote badly", () => {
+  const withVirtual = quoteSell(preReserves, event.baseAmountIn).grossQuote;
+  const withoutVirtual = quoteSell({ ...preReserves, virtualQuote: 0n }, event.baseAmountIn).grossQuote;
+  const error = Number(absDiff(withVirtual, withoutVirtual)) / Number(withVirtual);
+  assert.ok(error > 0.02, "expected a material error without virtual depth, got " + error);
 });
 
 test("selling moves price down and reports negative impact", () => {
@@ -59,21 +54,24 @@ test("a buy followed by a sell never returns the input", () => {
   assert.ok(sell.netQuote > 900_000_000n, "round trip should not lose a tenth");
 });
 
-test("buy keeps the LP fee in the pool and skims the rest", () => {
+test("fees keep the LP share in the pool and skim the rest", () => {
   const buy = quoteBuy(preReserves, 1_000_000_000n, DEFAULT_AMM_FEES);
-  assert.equal(
-    buy.quoteIntoPool,
-    buy.userQuoteIn - buy.fees.protocol - buy.fees.coinCreator,
-  );
-  assert.ok(buy.quoteIntoPool < buy.userQuoteIn);
+  assert.equal(buy.quoteIntoPool, buy.netQuote + buy.fees.lp);
   assert.ok(buy.baseOut > 0n);
+  assert.equal(buy.reservesAfter.quote, preReserves.quote + buy.quoteIntoPool);
+  assert.equal(buy.reservesAfter.virtualQuote, preReserves.virtualQuote - buy.fees.lp);
+  // effective depth advances by exactly the amount the curve priced against
   assert.equal(
-    buy.reservesAfter.quote,
-    preReserves.quote + buy.quoteIntoPool,
+    effectiveQuote(buy.reservesAfter),
+    effectiveQuote(preReserves) + buy.netQuote,
   );
 });
 
-test("spot price is quote per base unit", () => {
-  assert.ok(spotPrice(preReserves) > 0);
-  assert.equal(spotPrice({ base: 0n, quote: 1n }), 0);
+test("spot price divides effective depth by base", () => {
+  assert.equal(spotPrice(preReserves), Number(effectiveQuote(preReserves)) / Number(preReserves.base));
+  assert.equal(spotPrice({ base: 0n, quote: 1n, virtualQuote: 0n }), 0);
 });
+
+function absDiff(a: bigint, b: bigint): bigint {
+  return a > b ? a - b : b - a;
+}

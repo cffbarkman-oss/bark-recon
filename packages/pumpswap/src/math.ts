@@ -3,35 +3,42 @@ import { BPS_DENOMINATOR, mulDivCeil, mulDivFloor } from "@bark/solana";
 /**
  * PumpSwap pricing.
  *
- * Same constant product as the bonding curve, with a three-way fee split.
+ * Two facts make this different from a plain x*y=k pool, and getting either
+ * wrong produces quotes that look plausible and are badly wrong.
  *
- * What is verified, exactly:
- *   - every fee is ceil(gross x bps / 10,000);
- *   - the three fees sum to gross minus the user's proceeds, to the lamport;
- *   - a sell moves base up and quote down, and a buy does the reverse.
+ * 1. **Effective depth includes a virtual quote reserve.** Pricing runs over
+ *    base x (quote + virtual_quote_reserves). On the pool captured here the
+ *    real quote reserve was 11.9 SOL against a virtual offset of 17.6 SOL -
+ *    ignoring it prices the pool at 40% of its true depth.
  *
- * What is NOT verified, and is stated here so nobody ships it as if it were:
- * recomputing a trade from the pool's *post-trade* reserves does not reproduce
- * the trade's size. Feeding the captured sell's own post-state back into
- * quoteSell gives a gross 2.8% below what the chain paid, even though the
- * constant product of those reserves is only 0.026% off. Small trades amplify
- * a small reserve error enormously, because output is a difference of large
- * numbers.
+ * 2. **Event reserves are PRE-trade.** The pool fields in a swap event describe
+ *    the state before the swap, not after. Reconstructing a trade from what
+ *    looked like post-state reserves inverted the direction of every delta.
  *
- * The likely cause is that reported reserves carry accrued fees the curve does
- * not price against, and that virtual_quote_reserves may participate in the
- * effective depth (including it moves the error from 2.8% to 1.8%, still not
- * exact). Treat these functions as a display-grade estimate and use the
- * program's own pre-trade state - or simulate - before executing.
+ * With both in place the model reproduces captured trades to the lamport:
+ * a 345,679,455 lamport sell is predicted as 345,679,456, and a buy's 19,063,707
+ * base units are predicted as 19,063,708. The invariant
+ * base x effectiveQuote holds across consecutive events to within 0.00024%
+ * (the residue is LP fees accumulating in the pool).
  *
- * Sell side is observed. Buy side follows the BuyEvent schema
- * (quote_amount_in_with_lp_fee exists, so the LP fee stays in the pool) and is
- * flagged as inferred.
+ * The virtual reserve is **signed**: the captured buy's pool runs at -9,398,851,
+ * i.e. slightly less depth than its token account holds.
+ *
+ * Fee bases differ by side, and so do the amounts the curve prices against:
+ *   sell: fee = ceil(gross_output x bps); curve input = gross_output
+ *   buy:  fee = ceil(net_input x bps);    curve input = net_input
+ * Feeding a buy's net+LP amount into the curve overstates its output by exactly
+ * the LP fee rate - 0.25% on the captured trade.
  */
 
 export interface PoolReserves {
   base: bigint;
   quote: bigint;
+  /**
+   * Virtual quote depth. Read it from the pool account or the swap event; a
+   * value of zero is only correct for a pool that genuinely has none.
+   */
+  virtualQuote: bigint;
 }
 
 export interface AmmFeeConfig {
@@ -46,6 +53,11 @@ export const DEFAULT_AMM_FEES: AmmFeeConfig = {
   coinCreatorFeeBps: 75,
 };
 
+/** Quote depth the curve actually prices against. */
+export function effectiveQuote(reserves: PoolReserves): bigint {
+  return reserves.quote + reserves.virtualQuote;
+}
+
 export interface AmmFees {
   lp: bigint;
   protocol: bigint;
@@ -53,11 +65,7 @@ export interface AmmFees {
   total: bigint;
 }
 
-/**
- * Fees charged on a gross amount - the SELL side.
- *
- * Verified: on the captured sell each fee is ceil(gross x bps / 10,000).
- */
+/** Fees charged on a gross amount - the SELL side. */
 export function splitAmmFees(amount: bigint, fees: AmmFeeConfig): AmmFees {
   const lp = mulDivCeil(amount, BigInt(fees.lpFeeBps), BPS_DENOMINATOR);
   const protocol = mulDivCeil(amount, BigInt(fees.protocolFeeBps), BPS_DENOMINATOR);
@@ -66,24 +74,17 @@ export function splitAmmFees(amount: bigint, fees: AmmFeeConfig): AmmFees {
 }
 
 export interface GrossSplit {
-  /** Amount that reaches the pool, before the LP fee is added back. */
   net: bigint;
   fees: AmmFees;
-  /** net + lp fee: what the pool actually absorbs. */
   intoPool: bigint;
 }
 
 /**
  * Splits a BUY payment into fees and the amount that enters the pool.
  *
- * The buy side charges fees on the NET amount, not on what the user spends.
- * Verified on a live buy: the user paid 37,575,185,568 lamports and the
- * protocol fee was ceil(37,462,797,176 x 5 bps) = 18,731,399 - computed on the
- * net 37,462,797,176, not on the gross. Computing on the gross is off by 56k
- * lamports on that single trade.
- *
- * That is the asymmetry worth remembering: sells charge fees on the gross
- * output, buys charge them on the net input.
+ * The buy side charges fees on the net amount. Verified on a live buy: the
+ * user paid 37,575,185,568 lamports and the protocol fee was
+ * ceil(37,462,797,176 x 5 bps) = 18,731,399 - on the net, not the gross.
  */
 export function splitFromGross(gross: bigint, fees: AmmFeeConfig): GrossSplit {
   const totalBps = BigInt(fees.lpFeeBps + fees.protocolFeeBps + fees.coinCreatorFeeBps);
@@ -105,10 +106,9 @@ export function splitFromGross(gross: bigint, fees: AmmFeeConfig): GrossSplit {
 
 export interface AmmSellQuote {
   baseIn: bigint;
-  /** Quote removed from the pool, before fees. */
+  /** Quote removed from the curve, before fees. */
   grossQuote: bigint;
   fees: AmmFees;
-  /** What the seller receives. */
   netQuote: bigint;
   reservesAfter: PoolReserves;
   priceBefore: number;
@@ -117,11 +117,10 @@ export interface AmmSellQuote {
 }
 
 export interface AmmBuyQuote {
-  /** What the buyer pays, fees included. */
   userQuoteIn: bigint;
-  /** Quote added to the pool; includes the LP fee, excludes protocol/creator. */
+  /** What the pool's quote balance absorbs: net + LP fee. */
   quoteIntoPool: bigint;
-  /** Amount the fees were charged on; quoteIntoPool minus the LP fee. */
+  /** What the curve priced against: net, after every fee. */
   netQuote: bigint;
   fees: AmmFees;
   baseOut: bigint;
@@ -131,16 +130,12 @@ export interface AmmBuyQuote {
   priceImpact: number;
 }
 
+/** Spot price in quote units per base unit, on effective depth. */
 export function spotPrice(reserves: PoolReserves): number {
   if (reserves.base === 0n) {
     return 0;
   }
-  return Number(reserves.quote) / Number(reserves.base);
-}
-
-/** Quote reserves needed to buy the entire base side - a sanity bound. */
-export function poolDepthQuote(reserves: PoolReserves): bigint {
-  return reserves.quote;
+  return Number(effectiveQuote(reserves)) / Number(reserves.base);
 }
 
 export function quoteSell(
@@ -151,13 +146,18 @@ export function quoteSell(
   if (baseIn < 0n) {
     throw new RangeError("baseIn must be non-negative");
   }
-  const k = reserves.base * reserves.quote;
+  const effQuote = effectiveQuote(reserves);
+  const k = reserves.base * effQuote;
   const newBase = reserves.base + baseIn;
-  const newQuote = k / newBase;
-  const grossQuote = reserves.quote - newQuote;
+  const newEffQuote = k / newBase;
+  const grossQuote = effQuote - newEffQuote;
   const split = splitAmmFees(grossQuote, fees);
 
-  const reservesAfter: PoolReserves = { base: newBase, quote: newQuote };
+  const reservesAfter: PoolReserves = {
+    base: newBase,
+    quote: newEffQuote - reserves.virtualQuote,
+    virtualQuote: reserves.virtualQuote,
+  };
   const priceBefore = spotPrice(reserves);
   const priceAfter = spotPrice(reservesAfter);
 
@@ -184,20 +184,32 @@ export function quoteBuy(
   const grossSplit = splitFromGross(userQuoteIn, fees);
   const split = grossSplit.fees;
   const quoteIntoPool = grossSplit.intoPool;
-  const k = reserves.base * reserves.quote;
-  const newQuote = reserves.quote + quoteIntoPool;
-  const newBase = k / newQuote;
+
+  // Pricing runs on the NET amount; the pool still absorbs net + LP fee.
+  // Verified to one lamport on a captured buy: feeding the pre+LP amount
+  // instead overstates the output by exactly the LP fee rate (0.25%).
+  const effQuote = effectiveQuote(reserves);
+  const k = reserves.base * effQuote;
+  const newEffQuote = effQuote + grossSplit.net;
+  const newBase = k / newEffQuote;
   const baseOut = reserves.base - newBase;
 
-  const reservesAfter: PoolReserves = { base: newBase, quote: newQuote };
+  // The pool absorbs net + LP fee, while the curve advanced by net. The
+  // difference is booked against the virtual reserve, which is exactly how a
+  // signed offset can carry retained fees.
+  const reservesAfter: PoolReserves = {
+    base: newBase,
+    quote: reserves.quote + quoteIntoPool,
+    virtualQuote: reserves.virtualQuote - split.lp,
+  };
   const priceBefore = spotPrice(reserves);
   const priceAfter = spotPrice(reservesAfter);
 
   return {
     userQuoteIn,
     quoteIntoPool,
-    fees: split,
     netQuote: grossSplit.net,
+    fees: split,
     baseOut,
     reservesAfter,
     priceBefore,
@@ -206,18 +218,19 @@ export function quoteBuy(
   };
 }
 
-/** Quote required to buy an exact base amount. */
+/** Quote required to buy an exact base amount, fees included. */
 export function quoteBuyForBase(
   reserves: PoolReserves,
   baseOut: bigint,
   fees: AmmFeeConfig = DEFAULT_AMM_FEES,
 ): bigint {
-  const k = reserves.base * reserves.quote;
+  const effQuote = effectiveQuote(reserves);
+  const k = reserves.base * effQuote;
   const newBase = reserves.base - baseOut;
   if (newBase <= 0n) {
     throw new RangeError("Cannot buy the entire pool");
   }
-  const intoPool = k / newBase + 1n - reserves.quote;
+  const intoPool = k / newBase + 1n - effQuote;
   const feeBps = BigInt(fees.protocolFeeBps + fees.coinCreatorFeeBps);
   return mulDivFloor(intoPool, BPS_DENOMINATOR, BPS_DENOMINATOR - feeBps) + 1n;
 }

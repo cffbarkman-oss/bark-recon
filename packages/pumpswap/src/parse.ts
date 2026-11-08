@@ -25,10 +25,13 @@ export interface AmmSwap {
   protocolFee: bigint;
   coinCreatorFee: bigint;
   coinCreator: PublicKey;
+  /** Pool base reserve before the swap - events report pre-trade state. */
   poolBaseReserves: bigint;
+  /** Pool quote reserve before the swap. */
   poolQuoteReserves: bigint;
+  /** Virtual quote depth the curve prices against. */
+  poolVirtualQuoteReserves: bigint;
   timestamp: number;
-  unverified: boolean;
 }
 
 export interface ParsedAmmTransaction {
@@ -52,6 +55,7 @@ function toSwap(event: AmmSwapEvent, context: { signature: string; slot: number;
     coinCreatorFee: event.coinCreatorFee,
     poolBaseReserves: event.poolBaseTokenReserves,
     poolQuoteReserves: event.poolQuoteTokenReserves,
+    poolVirtualQuoteReserves: event.virtualQuoteReserves,
     timestamp: event.timestamp,
   };
 
@@ -62,7 +66,6 @@ function toSwap(event: AmmSwapEvent, context: { signature: string; slot: number;
       baseAmount: event.baseAmountIn,
       quoteAmount: event.quoteAmountOut,
       userQuoteAmount: event.userQuoteAmountOut,
-      unverified: false,
     };
   }
   return {
@@ -71,7 +74,6 @@ function toSwap(event: AmmSwapEvent, context: { signature: string; slot: number;
     baseAmount: event.baseAmountOut,
     quoteAmount: event.quoteAmountIn,
     userQuoteAmount: event.userQuoteAmountIn,
-    unverified: true,
   };
 }
 
