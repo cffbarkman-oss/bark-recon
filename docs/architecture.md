@@ -82,6 +82,12 @@ computes. A score with no factors is a vendor opinion wearing a percentage sign.
 - decodeTradeEvent when replaying historical logs
 - reconcile fees from balance deltas, never from the event's fee field
 
+**Discovery**
+
+- PumpLaunchWatcher over a websocket for a launch feed that needs no indexer: a create event
+  arrives decoded, with mint, curve, creator and mayhem flag
+- one subscription per program, because public endpoints reject multi-address subscriptions
+
 **Terminal API**
 
 - analyseConcentration behind the holders panel
@@ -97,7 +103,7 @@ computes. A score with no factors is a vendor opinion wearing a percentage sign.
 
 ## Testing strategy
 
-The suite is offline and deterministic: **121 tests, no network**.
+The suite is offline and deterministic: **129 tests, no network**.
 
 Three tiers:
 

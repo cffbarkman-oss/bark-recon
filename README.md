@@ -69,7 +69,7 @@ npm run build
 npm test
 ~~~
 
-All 121 tests run offline. No API keys, no RPC endpoint, no network.
+All 129 tests run offline. No API keys, no RPC endpoint, no network.
 
 Then, against a live endpoint:
 
@@ -78,10 +78,12 @@ export SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 npm run recon -- curve DGfgKzvaiBnU3nfPywB952u3QAeCBAsDySXtPDgMn5GB
 npm run recon -- capture <signature> --json
 npm run recon -- holders <mint>
+npm run recon -- watch --seconds 45
 ~~~
 
 The capture command prints decoded trades, fees, launches and the balance-delta settlement that
-shows where the money actually went. The holders command measures top-N concentration from
+shows where the money actually went. The watch command is a live discovery feed: it subscribes to
+the pump program over websocket and prints each launch as it lands (eight in a 50-second run). The holders command measures top-N concentration from
 getTokenLargestAccounts - capped at 20 accounts by the RPC, and labelled as such in the output.
 
 Public endpoints throttle these calls; point SOLANA_RPC_URL at your own node for real use.

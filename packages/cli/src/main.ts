@@ -7,6 +7,7 @@ import {
   DISCRIMINATORS,
   parsePumpTransaction,
   reconcileTrade,
+  PumpLaunchWatcher,
   type BondingCurveAccount,
 } from "@bark/pumpfun";
 import { analyseConcentration, buildHolderSnapshot } from "@bark/market-intel";
@@ -20,6 +21,7 @@ const USAGE = [
   "  bark-recon capture <signature> [--rpc <url>] [--json]",
   "  bark-recon curve <mint-or-curve-address> [--rpc <url>] [--json]",
   "  bark-recon holders <mint> [--rpc <url>] [--json]",
+  "  bark-recon watch [--seconds 30] [--json]",
   "",
   "Environment:",
   "  SOLANA_RPC_URL   endpoint to use when --rpc is omitted",
@@ -32,12 +34,14 @@ interface Args {
   target: string;
   rpcUrl: string;
   json: boolean;
+  seconds: number;
 }
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
   let rpcUrl = process.env.SOLANA_RPC_URL ?? "";
   let json = false;
+  let seconds = 30;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] as string;
@@ -47,6 +51,11 @@ function parseArgs(argv: string[]): Args {
     }
     if (arg === "--rpc") {
       rpcUrl = argv[i + 1] ?? "";
+      i += 1;
+      continue;
+    }
+    if (arg === "--seconds") {
+      seconds = Number(argv[i + 1] ?? "30");
       i += 1;
       continue;
     }
@@ -62,6 +71,7 @@ function parseArgs(argv: string[]): Args {
     target: positional[1] ?? "",
     rpcUrl,
     json,
+    seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 30,
   };
 }
 
@@ -166,10 +176,48 @@ async function runHolders(rpc: SolanaRpc, mint: string, json: boolean): Promise<
   process.stdout.write(renderHolders(mint, snapshot, report, supply.decimals) + String.fromCharCode(10));
 }
 
+async function runWatch(seconds: number, json: boolean): Promise<void> {
+  const launches: string[] = [];
+  const watcher = new PumpLaunchWatcher({
+    onLaunch: (launch) => {
+      launches.push(launch.mint.toBase58());
+      if (json) {
+        process.stdout.write(JSON.stringify({
+          signature: launch.signature,
+          mint: launch.mint.toBase58(),
+          symbol: launch.symbol,
+          name: launch.name,
+          curve: launch.bondingCurve.toBase58(),
+          creator: launch.creator.toBase58(),
+        }) + String.fromCharCode(10));
+        return;
+      }
+      process.stdout.write(
+        [
+          "LAUNCH  " + launch.symbol + "  " + launch.name,
+          "  mint      " + launch.mint.toBase58(),
+          "  curve     " + launch.bondingCurve.toBase58(),
+          "  creator   " + launch.creator.toBase58(),
+          "  mayhem    " + (launch.isMayhemMode ? "yes" : "no"),
+        ].join(String.fromCharCode(10)) + String.fromCharCode(10),
+      );
+    },
+    onError: (error) => process.stderr.write("stream: " + error.message + String.fromCharCode(10)),
+    onReconnect: (attempt) => process.stderr.write("reconnecting (attempt " + attempt + ")" + String.fromCharCode(10)),
+  });
+
+  process.stderr.write("watching pump.fun launches for " + seconds + "s..." + String.fromCharCode(10));
+  watcher.connect();
+  await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+  watcher.close();
+  process.stderr.write("saw " + launches.length + " launch(es)" + String.fromCharCode(10));
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  if (args.command === "help" || args.target.length === 0) {
+  const needsTarget = args.command !== "watch" && args.command !== "help";
+  if (args.command === "help" || (needsTarget && args.target.length === 0)) {
     process.stdout.write(USAGE + String.fromCharCode(10));
     if (args.command !== "help") {
       process.exit(2);
@@ -195,6 +243,10 @@ async function main(): Promise<void> {
     }
     if (args.command === "holders") {
       await runHolders(rpc, args.target, args.json);
+      return;
+    }
+    if (args.command === "watch") {
+      await runWatch(args.seconds, args.json);
       return;
     }
     fail("unknown command: " + args.command + String.fromCharCode(10) + USAGE, 2);

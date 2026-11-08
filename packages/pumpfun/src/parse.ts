@@ -165,7 +165,8 @@ function toTrade(event: TradeEvent, context: Context): PumpTrade {
   };
 }
 
-function toCreate(event: CreateEvent, context: Context): PumpCreate {
+/** Builds the public launch record from a CreateEvent. */
+export function toCreate(event: CreateEvent, context: Context): PumpCreate {
   return {
     signature: context.signature,
     slot: context.slot,

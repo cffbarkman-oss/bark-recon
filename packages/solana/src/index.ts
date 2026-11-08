@@ -14,3 +14,4 @@ export * from "./public-key.js";
 export * from "./rpc.js";
 export * from "./types.js";
 export * from "./units.js";
+export * from "./ws.js";

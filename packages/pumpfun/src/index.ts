@@ -14,3 +14,4 @@ export * from "./launch.js";
 export * from "./parse.js";
 export * from "./programs.js";
 export * from "./settlement.js";
+export * from "./watch.js";
