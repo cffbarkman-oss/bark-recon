@@ -39,7 +39,9 @@ So that is what this repo does, and then packages the result as reusable code.
 | [@bark/cli](packages/cli) | `bark-recon capture` / `curve` / `holders` for live debugging | all of the above |
 
 Also in the repo: a [competitive landscape](docs/competitors.md) built from the same observation
-rules - what bags.fm, Moonshot, Axiom and fomo actually run on, and what that implies for Bark.
+rules - what bags.fm, Moonshot, Axiom and fomo actually run on, and what that implies for Bark -
+and a [launchpad landscape](docs/launchpad-landscape.md) covering 28 launchpad projects, of which
+four have a reachable product and the rest leave no trace.
 
 ---
 
