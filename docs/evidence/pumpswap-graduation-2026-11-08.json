@@ -1,0 +1,18 @@
+{
+  "capturedAt": "2026-11-08T18:02:18.780Z",
+  "network": "mainnet-beta",
+  "method": "logsSubscribe on pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA, filtered for the CreatePoolEvent discriminator",
+  "note": "This is what graduation looks like on chain: liquidity arriving as a new AMM pool.",
+  "captures": [
+    {
+      "id": "create-pool",
+      "signature": "57QpMfpSTV6rHxSsSka3zTK3yRq991wf2yafhw6ot39xhYcRRBuAh6VyN3dgGJZGiXMKLPEGzSZh69AsgMPHWEid",
+      "slot": 467007488,
+      "event": "CreatePoolEvent",
+      "discriminator": "b1310cd2a076a774",
+      "length": 344,
+      "observed": "base_mint is wrapped SOL and quote_mint is the token, so this pool is SOL-base. The pool captured earlier had the opposite orientation.",
+      "hex": "b1310cd2a076a77461b8f06a00000000000021080ecfccd9e85638e3fd73a1a1e1c9ef8a8b0be589e7f61a9e7d543737ad97069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001a5ecd72fcf635dcace8c6e29118ce328f0f77d7b3cb586f0e754739ac80f3648090600d303df300000000080c6a47e8d030000d303df300000000080c6a47e8d03006400000000000000f5e6ae3b2d0d000091e6ae3b2d0d0000fe0c5727121bba0a6bf51e8698578cc9d348aa5de12f248a78e2a9e282f729cb6fc822755212e5fd6b2308b8409db18a766cdad5189fdf5003ab057ad96ef2e5ac1e10ccb4006541f14a8b723ef4dfdf070b8a20b4971625411563f214882aa4ae6e05f7c5aa7777b46a600e61db6cbc32525f63f88a3594e4c3a8fef021440b0a21080ecfccd9e85638e3fd73a1a1e1c9ef8a8b0be589e7f61a9e7d543737ad970000000000000000000000"
+    }
+  ]
+}

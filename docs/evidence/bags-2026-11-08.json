@@ -1,0 +1,30 @@
+{
+  "capturedAt": "2026-11-08T18:02:18.791Z",
+  "network": "mainnet-beta",
+  "method": "getTransaction on signatures mentioning each bags swap program, argument bytes correlated with token balance deltas",
+  "note": "bags emits no program events. Instruction data is the only decodable surface.",
+  "programs": {
+    "swap": "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG",
+    "swapV2": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
+  },
+  "samples": [
+    {
+      "program": "swap",
+      "data": "f8c69e91e17587c8566abb0e0000000014b8375a03000000",
+      "accounts": 14,
+      "note": "amountIn 247163478 equals the lamports that entered the vault exactly"
+    },
+    {
+      "program": "swap",
+      "data": "f8c69e91e17587c8d0e5f60d000000006abe7c0300000002",
+      "accounts": 14,
+      "note": "25-byte variant carrying a trailing flag byte 0x02"
+    },
+    {
+      "program": "swap-v2",
+      "data": "414b3f4ceb5b5b8883565d4511000000149d31010000000000",
+      "accounts": 15,
+      "note": "amountIn 74178188931 equals the tokens that left the user's account"
+    }
+  ]
+}
