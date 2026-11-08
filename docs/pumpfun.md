@@ -307,14 +307,27 @@ five. accountKeyList() in settlement.ts builds the correct order.
 Constant product over virtual reserves, floored on output:
 
 ~~~text
-buy:   net     = quoteIn - ceil(fees)
-       newVQ   = vQuote + net
-       tokens  = vTokens - (vQuote * vTokens) / newVQ
+buy:   newVQ  = vQuote + quoteIn
+       tokens = vTokens - (vQuote * vTokens) / newVQ
+       cost   = quoteIn + ceil(fees)
 
-sell:  newVT   = vTokens + tokensIn
-       gross   = vQuote - (vQuote * vTokens) / newVT
-       payout  = gross - ceil(fees)
+sell:  newVT  = vTokens + tokensIn
+       gross  = vQuote - (vQuote * vTokens) / newVT
+       payout = gross - ceil(fees)
 ~~~
+
+**Reserves move by the gross amount. Fees are never netted out of the curve.**
+
+That is the single most important line in this document, and it is the opposite
+of what a conventional AMM client would assume. It was established from the
+launch capture, where the creator's first buy moved virtual quote from exactly
+30,000,000,000 to exactly 30,246,404,309 - the full sol_amount - while charging
+2,340,841 of protocol fee and 739,213 of creator fee beside it.
+
+Netting the fee out first shifts every reserve, price and graduation percentage
+downward, and the error compounds across a token's life. On the sell side the
+same rule shows up as: the curve releases gross, and the seller receives gross
+minus the fees.
 
 Graduation is **derived, not hardcoded**. The curve completes when real token reserves reach
 zero, so:
@@ -371,13 +384,19 @@ input exactly. That check should be in every decoder that touches money.
 
 ## Open questions
 
-1. Why does the curve account report creator_fee_bps = 0 while the trade charges 30 bps?
-2. Why does the router log fee_bps = 100 when the protocol fee is 95 bps?
-3. Derivation is settled for current launches and not for older ones. Seeds
+1. The buy-side token output is 1.6 parts per billion lower on chain than the
+   constant-product formula predicts from identical inputs (8,741,264,595,445
+   recorded vs 8,741,264,609,703 computed). The quote side matches exactly, so
+   this is a rounding or adjustment inside one intermediate step. It is
+   operationally irrelevant at 0.00000016% but it is not explained, and the test
+   asserts the bound rather than hiding it.
+2. Why does the curve account report creator_fee_bps = 0 while the trade charges 30 bps?
+3. Why does the router log fee_bps = 100 when the protocol fee is 95 bps?
+4. Derivation is settled for current launches and not for older ones. Seeds
    ("bonding-curve", mint) under 6EF8 reproduce the launch captured here exactly (bump 255),
    and @bark/pumpfun ships that derivation. But the 166-byte curve DGfgKzva...Mn5GB sampled
    from a sell that same day is not derivable from its mint under this seed set, nor under 384
    other seed/provider combinations tested. Treat derivation as an optimisation for new
    launches and always confirm the account exists - index addresses seen in transactions.
-4. Shareholder-vector events have not been observed yet; the decoder handles them but the
+5. Shareholder-vector events have not been observed yet; the decoder handles them but the
    offsets are untested against a live sample.

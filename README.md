@@ -65,7 +65,7 @@ npm run build
 npm test
 ~~~
 
-All 94 tests run offline. No API keys, no RPC endpoint, no network.
+All 97 tests run offline. No API keys, no RPC endpoint, no network.
 
 Then, against a live endpoint:
 
@@ -96,9 +96,11 @@ const rpc = new SolanaRpc({ endpoint: process.env.SOLANA_RPC_URL! });
 const account = await rpc.getAccountInfo("DGfgKzvaiBnU3nfPywB952u3QAeCBAsDySXtPDgMn5GB");
 
 const curve = decodeBondingCurve("DGfgKzvaiBnU3nfPywB952u3QAeCBAsDySXtPDgMn5GB", fromHex(account!.data[0]));
-const quote = quoteBuy(curve, 1_000_000_000n);
+// 1 SOL of budget, fees included; the curve itself receives quoteIntoCurve
+const quote = quoteBuyWithBudget(curve, 1_000_000_000n);
 
-console.log(formatAmount(quote.tokens, 6), "tokens for 1 SOL");
+console.log(formatAmount(quote.tokensOut, 6), "tokens for 1 SOL");
+console.log("fee", formatAmount(quote.fees.total, 9), "SOL");
 console.log("price impact", (quote.priceImpact * 100).toFixed(2) + "%");
 ~~~
 
@@ -134,8 +136,9 @@ const risk = assessRisk({ concentration, bundles, liquidityUsd, holderCount });
 
 - The curve is constant-product over **virtual** reserves; virtual SOL = real SOL + 30 SOL.
 - Quote in integers and floor the output. Never quote one unit optimistically.
-- Charge fees on the **quote** side before touching the curve, and round them **up**: the
-  protocol charges ceil(amount x 95 bps) and the creator ceil(amount x 30 bps).
+- Reserves move by the **gross** quote amount - fees are charged alongside the curve, never
+  netted out of it - and they round **up**: protocol ceil(amount x 95 bps), creator
+  ceil(amount x 30 bps).
 - Graduation is a real-quote threshold, not a market-cap threshold - and it is derived from the
   reserve constants (85,005,359,056 lamports for the observed parameters), not hardcoded to 85.
 
