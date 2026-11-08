@@ -41,6 +41,22 @@ It should back the first version of the terminal rather than waiting for a bespo
 
 ---
 
+## Jupiter routing (open)
+
+~~~text
+GET https://lite-api.jup.ag/swap/v1/quote?inputMint=..&outputMint=..&amount=..&slippageBps=..
+~~~
+
+Verified working, no key. A 1 SOL -> BONK quote returned three hops: Kipseli (SOL -> USDC),
+JupLend AMM (USDC -> USDT), Scorch (USDT -> BONK), with priceImpactPct, otherAmountThreshold and
+swapUsdValue.
+
+This is the cheapest credible route display a terminal can ship: the user sees SOL -> USDC ->
+BONK and which venues carried it, rather than one opaque price. Execution needs a signer and is
+out of scope for this repository.
+
+---
+
 ## DexScreener (open)
 
 ~~~text

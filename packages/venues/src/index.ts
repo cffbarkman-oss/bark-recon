@@ -11,5 +11,6 @@ export * from "./dexscreener.js";
 export * from "./fomo.js";
 export * from "./http.js";
 export * from "./jupiter.js";
+export * from "./jupiter-swap.js";
 export * from "./pumpfun.js";
 export * from "./types.js";

@@ -136,6 +136,18 @@ export class ByteReader {
     return value >= signBit ? value - (1n << 64n) : value;
   }
 
+  /** Signed 128-bit little-endian integer (used by AMM virtual reserves). */
+  i128(): bigint {
+    this.require(16);
+    let value = 0n;
+    for (let i = 15; i >= 0; i -= 1) {
+      value = (value << 8n) | BigInt(this.data[this.offset + i] as number);
+    }
+    this.offset += 16;
+    const signBit = 1n << 127n;
+    return value >= signBit ? value - (1n << 128n) : value;
+  }
+
   bytes(length: number): Uint8Array {
     this.require(length);
     const slice = this.data.slice(this.offset, this.offset + length);

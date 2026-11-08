@@ -34,7 +34,8 @@ So that is what this repo does, and then packages the result as reusable code.
 | [@bark/pumpfun](packages/pumpfun) | curve math, account + event decoders, transaction parser | @bark/solana |
 | [@bark/market-intel](packages/market-intel) | concentration, wallet clustering, bundle detection, dev history, explainable risk | @bark/solana |
 | [@bark/venues](packages/venues) | one adapter interface over Jupiter, DexScreener, pump.fun, fomo, Axiom | @bark/solana |
-| [@bark/cli](packages/cli) | `bark-recon capture` / `bark-recon curve` for live debugging | all of the above |
+| [@bark/pumpswap](packages/pumpswap) | the AMM graduated tokens trade on: pool + swap decoding, fee split | @bark/solana |
+| [@bark/cli](packages/cli) | `bark-recon capture` / `curve` / `holders` for live debugging | all of the above |
 
 ---
 
@@ -65,7 +66,7 @@ npm run build
 npm test
 ~~~
 
-All 102 tests run offline. No API keys, no RPC endpoint, no network.
+All 121 tests run offline. No API keys, no RPC endpoint, no network.
 
 Then, against a live endpoint:
 
@@ -144,6 +145,8 @@ const risk = assessRisk({ concentration, bundles, liquidityUsd, holderCount });
 
 **Terminal**
 
+- A token stops being a curve when it graduates. PumpSwap is where the volume goes, and its
+  discriminators collide with the curve program's - the owning program is the only disambiguator.
 - Concentration must be computed from balances with infrastructure accounts excluded by the
   caller - the provider cannot know which account is the pool.
 - Bundle detection needs a *reason* string, not just a boolean. Users do not trust unexplained flags.

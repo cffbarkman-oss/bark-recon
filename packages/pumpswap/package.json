@@ -1,0 +1,19 @@
+{
+  "name": "@bark/pumpswap",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "PumpSwap AMM: pool and swap decoding plus constant-product pricing for post-graduation pump tokens.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@bark/solana": "0.1.0"
+  }
+}
