@@ -37,6 +37,9 @@ So that is what this repo does, and then packages the result as reusable code.
 | [@bark/pumpswap](packages/pumpswap) | the AMM graduated tokens trade on: pool + swap decoding, fee split | @bark/solana |
 | [@bark/cli](packages/cli) | `bark-recon capture` / `curve` / `holders` for live debugging | all of the above |
 
+Also in the repo: a [competitive landscape](docs/competitors.md) built from the same observation
+rules - what bags.fm, Moonshot, Axiom and fomo actually run on, and what that implies for Bark.
+
 ---
 
 ## Evidence over assertion
