@@ -239,6 +239,79 @@ export function decodeBuyEvent(data: Uint8Array): AmmBuyEvent {
   return event;
 }
 
+/**
+ * Emitted when a curve graduates and its liquidity becomes a PumpSwap pool.
+ *
+ * 344 bytes total, consuming exactly. Worth noting what it reveals: base_mint
+ * here is wrapped SOL and quote_mint is the token, i.e. pools exist with SOL on
+ * the BASE side. Any code that assumes "quote is always SOL" is wrong for part
+ * of the market.
+ */
+export interface AmmCreatePoolEvent {
+  timestamp: number;
+  index: number;
+  creator: PublicKey;
+  baseMint: PublicKey;
+  quoteMint: PublicKey;
+  baseMintDecimals: number;
+  quoteMintDecimals: number;
+  baseAmountIn: bigint;
+  quoteAmountIn: bigint;
+  poolBaseAmount: bigint;
+  poolQuoteAmount: bigint;
+  minimumLiquidity: bigint;
+  initialLiquidity: bigint;
+  lpTokenAmountOut: bigint;
+  poolBump: number;
+  pool: PublicKey;
+  lpMint: PublicKey;
+  userBaseTokenAccount: PublicKey;
+  userQuoteTokenAccount: PublicKey;
+  coinCreator: PublicKey;
+  isMayhemMode: boolean;
+  creatorFeeBps: bigint;
+  canEditCreatorFee: boolean;
+  isHolderReward: boolean;
+  trailing: Uint8Array;
+}
+
+export function decodeCreatePoolEvent(data: Uint8Array): AmmCreatePoolEvent {
+  if (!matchesDiscriminator(data, DISCRIMINATORS.createPoolEvent)) {
+    throw new EventDecodeError("Not a PumpSwap CreatePoolEvent");
+  }
+  const r = new ByteReader(data);
+  r.skip(8);
+  const event: AmmCreatePoolEvent = {
+    timestamp: Number(r.i64()),
+    index: r.u16(),
+    creator: new PublicKey(r.bytes(32)),
+    baseMint: new PublicKey(r.bytes(32)),
+    quoteMint: new PublicKey(r.bytes(32)),
+    baseMintDecimals: r.u8(),
+    quoteMintDecimals: r.u8(),
+    baseAmountIn: r.u64(),
+    quoteAmountIn: r.u64(),
+    poolBaseAmount: r.u64(),
+    poolQuoteAmount: r.u64(),
+    minimumLiquidity: r.u64(),
+    initialLiquidity: r.u64(),
+    lpTokenAmountOut: r.u64(),
+    poolBump: r.u8(),
+    pool: new PublicKey(r.bytes(32)),
+    lpMint: new PublicKey(r.bytes(32)),
+    userBaseTokenAccount: new PublicKey(r.bytes(32)),
+    userQuoteTokenAccount: new PublicKey(r.bytes(32)),
+    coinCreator: new PublicKey(r.bytes(32)),
+    isMayhemMode: r.bool(),
+    creatorFeeBps: r.u64(),
+    canEditCreatorFee: r.bool(),
+    isHolderReward: r.bool(),
+    trailing: new Uint8Array(0),
+  };
+  event.trailing = r.rest();
+  return event;
+}
+
 export function decodeSwapEvent(data: Uint8Array): AmmSwapEvent | null {
   if (matchesDiscriminator(data, DISCRIMINATORS.sellEvent)) {
     return decodeSellEvent(data);

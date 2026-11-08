@@ -382,6 +382,26 @@ input exactly. That check should be in every decoder that touches money.
 
 ---
 
+## The fee program
+
+Every trade CPIs into **pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ**, which is not part of the
+pump IDL and publishes no account schema. Recorded here so the next pass has a starting point:
+
+| Observation | Value |
+| --- | --- |
+| fee instruction discriminator | 9aed8a5ca202a2bb |
+| instruction data length | 57 bytes (1-byte tag + u64 + zero padding) |
+| accounts passed | 2 |
+| program-owned account A | 208 bytes, discriminator 99a64790b3bd89fb |
+| program-owned account B | 4097 bytes (1 + 4096 - a bitset-shaped allocation) |
+
+The fee program is where the real protocol/creator split is computed, so decoding it would
+settle the "three sources disagree on the creator rate" question permanently. That needs either
+a second account observation at a different state or a sample of several fee instructions; one
+sample is not enough to claim a layout.
+
+---
+
 ## Open questions
 
 1. The buy-side token output is 1.6 parts per billion lower on chain than the

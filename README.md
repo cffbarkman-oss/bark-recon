@@ -34,7 +34,8 @@ So that is what this repo does, and then packages the result as reusable code.
 | [@bark/pumpfun](packages/pumpfun) | curve math, account + event decoders, transaction parser | @bark/solana |
 | [@bark/market-intel](packages/market-intel) | concentration, wallet clustering, bundle detection, dev history, explainable risk | @bark/solana |
 | [@bark/venues](packages/venues) | one adapter interface over Jupiter, DexScreener, pump.fun, fomo, Axiom | @bark/solana |
-| [@bark/pumpswap](packages/pumpswap) | the AMM graduated tokens trade on: pool + swap decoding, fee split | @bark/solana |
+| [@bark/pumpswap](packages/pumpswap) | the AMM graduated tokens trade on: pool + swap + graduation decoding, exact pricing | @bark/solana |
+| [@bark/bags](packages/bags) | bags.fm swap instruction shapes, the part they make decodable | @bark/solana |
 | [@bark/cli](packages/cli) | `bark-recon capture` / `curve` / `holders` for live debugging | all of the above |
 
 Also in the repo: a [competitive landscape](docs/competitors.md) built from the same observation
@@ -69,7 +70,7 @@ npm run build
 npm test
 ~~~
 
-All 142 tests run offline. No API keys, no RPC endpoint, no network.
+All 155 tests run offline. No API keys, no RPC endpoint, no network.
 
 Then, against a live endpoint:
 

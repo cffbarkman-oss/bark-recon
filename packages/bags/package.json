@@ -1,0 +1,19 @@
+{
+  "name": "@bark/bags",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "bags.fm on-chain surface: instruction shapes and discriminators for its two swap programs, as observed.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@bark/solana": "0.1.0"
+  }
+}

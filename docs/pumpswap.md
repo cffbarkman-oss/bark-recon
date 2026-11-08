@@ -204,6 +204,42 @@ mistake was assuming a curve that ignores it.
 
 ---
 
+## Pool creation: the graduation event
+
+Captured live on 2026-11-08, 344 bytes, consuming exactly.
+
+| Field | Captured |
+| --- | --- |
+| timestamp | 1,794,160,737 |
+| index | 0 |
+| base_mint | So111...1112 (wrapped SOL) |
+| quote_mint | a5ecd72f... |
+| base_decimals / quote_decimals | 9 / 6 |
+| base_amount_in | 209,900,000,000 |
+| quote_amount_in | 1,000,000,000,000,000 |
+| minimum_liquidity | 100 |
+| initial_liquidity | 14,487,926,007,541 |
+| lp_token_amount_out | 14,487,926,007,441 |
+| pool_bump | 254 |
+| pool | 0c572712...cb6f |
+| is_mayhem_mode | false |
+
+Two things this settles:
+
+1. **This is what graduation looks like on chain.** A curve emits a completion, and the liquidity
+   arrives here as a pool creation with a known initial deposit. A terminal can show the whole
+   life of a token: curve, migration, pool, LP supply.
+
+2. **SOL can be the BASE side.** This pool is SOL-base / token-quote with 9 and 6 decimals. The
+   pool captured earlier was the opposite orientation. Any pricing code that assumes "quote is
+   SOL" is wrong for part of the market - and the error would be silent, because both sides are
+   integers.
+
+The pool address appears in the event, which is how a terminal finds where a graduated token
+trades without deriving anything.
+
+---
+
 ## Open questions
 
 1. What are the 14 trailing bytes of the Pool account?

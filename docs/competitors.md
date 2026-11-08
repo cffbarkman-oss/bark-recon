@@ -77,6 +77,22 @@ instruction logs. An indexer for this venue has to parse instruction data or rec
 balances. That is a materially harder integration than pump.fun, which tells you something about
 where their priorities are.
 
+### Instruction shapes, decoded
+
+Four live swaps per program were decoded and correlated against token balance changes:
+
+| Program | Data | Args | Tail |
+| --- | --- | --- | --- |
+| Swap | 24 or 25 bytes | (amountIn, minOut) as u64 LE | absent, or one flag byte (0x02 seen) |
+| Swap2 | 25 bytes | (amountIn, minOut) as u64 LE | 0x00 in every sample |
+
+Verified: the first u64 always equals the amount that left the user's account, exactly, and the
+second is always a bound the actual output satisfied. Both programs take account 0 as a program
+fee/vault account and repeat the program id inside the account list - an unusual pattern.
+
+What remains unknown: the pool/state layout, the fee parameters, and the rule that picks Swap
+versus Swap2. @bark/bags ships the decodable part and says so in its own documentation.
+
 ---
 
 ## Moonshot
