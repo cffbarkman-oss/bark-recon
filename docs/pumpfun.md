@@ -255,7 +255,7 @@ From the captured sell of 1,559,679,685 lamports:
 
 | Component | Rate | Amount | Where it went |
 | --- | --- | --- | --- |
-| protocol fee | 95 bps | 14,816,958 | fee recipient 5LAtLnKd...ANDG |
+| protocol fee | 95 bps | 14,816,958 | recipient 5LAtLnKd...ANDG actually received 15,401,836 |
 | creator fee | 30 bps | 4,679,040 | accrued on the curve (creatorFeeUnclaimed grew) |
 | buyback | 50 bps | 7,408,479 | buyback recipients |
 | user received | - | 1,523,511,448 | trader wallet |
