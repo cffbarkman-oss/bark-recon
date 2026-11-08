@@ -103,9 +103,17 @@ That is notable on its own: tokenized equities plus leverage, which is exactly t
 expansion Bark's vision mentions as subject to separate regulatory evaluation. Someone is already
 selling it.
 
-The page is a Vite/Rolldown SPA. The shell and its eagerly-loaded chunks were inspected (324 KB);
-they contain analytics and asset hosts but no API surface, so the data layer is lazily loaded.
-No API claims are made here.
+The page is a Vite/Rolldown SPA. The shell and its eagerly-loaded chunks were inspected, then the
+seven chunks they reference were fetched and searched (a second level of static references, which
+is as far as a static scan can follow a rolldown build):
+
+- no API host or REST path appears in them
+- the only backend-shaped string is a storage path: /v1/storage/buckets/
+- the rest is analytics, asset CDNs and app-store links
+
+So the trading surface is either served from a different origin entirely or resolved at runtime.
+No API claims are made here - the honest summary is "marketing shell inspected, app interior not
+reachable statically".
 
 ---
 

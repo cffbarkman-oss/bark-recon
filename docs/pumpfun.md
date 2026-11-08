@@ -395,6 +395,13 @@ pump IDL and publishes no account schema. Recorded here so the next pass has a s
 | program-owned account A | 208 bytes, discriminator 99a64790b3bd89fb |
 | program-owned account B | 4097 bytes (1 + 4096 - a bitset-shaped allocation) |
 
+Account A, read structurally: a 32-byte key at offset 8, then three u64 counters
+(96,191,454,319,254 / 38,525,678,627,499 / 159,358,140,610,310 on the captured snapshot),
+then a Unix timestamp at offset 64 (1,794,160,643 - the capture date), then zeros. That is
+consistent with a fee accumulator: an authority, running totals, and a last-update stamp. It is
+**not** enough to name the fields, and guessing at fee parameters from one snapshot would be
+exactly the kind of plausible-but-wrong inference this repository is built to avoid.
+
 The fee program is where the real protocol/creator split is computed, so decoding it would
 settle the "three sources disagree on the creator rate" question permanently. That needs either
 a second account observation at a different state or a sample of several fee instructions; one
