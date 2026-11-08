@@ -1,0 +1,25 @@
+{
+  "name": "bark-recon",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Reverse-engineered building blocks for Bark: Solana on-chain decoders, launchpad curve math, venue adapters and market-intelligence primitives.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/solana packages/pumpfun packages/market-intel packages/venues",
+    "clean": "tsc -b --clean packages/solana packages/pumpfun packages/market-intel packages/venues",
+    "typecheck": "tsc -b --pretty false",
+    "test": "node --test packages/solana/dist/test/*.test.js packages/pumpfun/dist/test/*.test.js packages/market-intel/dist/test/*.test.js packages/venues/dist/test/*.test.js",
+    "verify": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

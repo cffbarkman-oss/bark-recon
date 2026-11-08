@@ -1,0 +1,19 @@
+{
+  "name": "@bark/venues",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Venue adapters for Bark: one interface over Jupiter, DexScreener and the closed trading terminals, with their integration status made explicit.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@bark/solana": "0.1.0"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@bark/market-intel",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Explainable market-intelligence primitives: holder concentration, wallet clustering, bundle detection, developer history and risk scoring.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@bark/solana": "0.1.0"
+  }
+}

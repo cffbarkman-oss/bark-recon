@@ -1,0 +1,19 @@
+{
+  "name": "@bark/solana",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Zero-dependency Solana primitives: base58, addresses, program-derived addresses, amount math and a resilient JSON-RPC client.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  }
+}
