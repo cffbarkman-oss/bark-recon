@@ -103,7 +103,7 @@ computes. A score with no factors is a vendor opinion wearing a percentage sign.
 
 ## Testing strategy
 
-The suite is offline and deterministic: **129 tests, no network**.
+The suite is offline and deterministic: **134 tests, no network**.
 
 Three tiers:
 

@@ -53,11 +53,54 @@ export interface AmmFees {
   total: bigint;
 }
 
+/**
+ * Fees charged on a gross amount - the SELL side.
+ *
+ * Verified: on the captured sell each fee is ceil(gross x bps / 10,000).
+ */
 export function splitAmmFees(amount: bigint, fees: AmmFeeConfig): AmmFees {
   const lp = mulDivCeil(amount, BigInt(fees.lpFeeBps), BPS_DENOMINATOR);
   const protocol = mulDivCeil(amount, BigInt(fees.protocolFeeBps), BPS_DENOMINATOR);
   const coinCreator = mulDivCeil(amount, BigInt(fees.coinCreatorFeeBps), BPS_DENOMINATOR);
   return { lp, protocol, coinCreator, total: lp + protocol + coinCreator };
+}
+
+export interface GrossSplit {
+  /** Amount that reaches the pool, before the LP fee is added back. */
+  net: bigint;
+  fees: AmmFees;
+  /** net + lp fee: what the pool actually absorbs. */
+  intoPool: bigint;
+}
+
+/**
+ * Splits a BUY payment into fees and the amount that enters the pool.
+ *
+ * The buy side charges fees on the NET amount, not on what the user spends.
+ * Verified on a live buy: the user paid 37,575,185,568 lamports and the
+ * protocol fee was ceil(37,462,797,176 x 5 bps) = 18,731,399 - computed on the
+ * net 37,462,797,176, not on the gross. Computing on the gross is off by 56k
+ * lamports on that single trade.
+ *
+ * That is the asymmetry worth remembering: sells charge fees on the gross
+ * output, buys charge them on the net input.
+ */
+export function splitFromGross(gross: bigint, fees: AmmFeeConfig): GrossSplit {
+  const totalBps = BigInt(fees.lpFeeBps + fees.protocolFeeBps + fees.coinCreatorFeeBps);
+  const denominator = BPS_DENOMINATOR + totalBps;
+  let net = mulDivFloor(gross, BPS_DENOMINATOR, denominator);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const split = splitAmmFees(net, fees);
+    const diff = gross - (net + split.total);
+    if (diff === 0n) {
+      return { net, fees: split, intoPool: net + split.lp };
+    }
+    net += diff;
+  }
+
+  const split = splitAmmFees(net, fees);
+  return { net, fees: split, intoPool: net + split.lp };
 }
 
 export interface AmmSellQuote {
@@ -78,6 +121,8 @@ export interface AmmBuyQuote {
   userQuoteIn: bigint;
   /** Quote added to the pool; includes the LP fee, excludes protocol/creator. */
   quoteIntoPool: bigint;
+  /** Amount the fees were charged on; quoteIntoPool minus the LP fee. */
+  netQuote: bigint;
   fees: AmmFees;
   baseOut: bigint;
   reservesAfter: PoolReserves;
@@ -136,8 +181,9 @@ export function quoteBuy(
   if (userQuoteIn < 0n) {
     throw new RangeError("userQuoteIn must be non-negative");
   }
-  const split = splitAmmFees(userQuoteIn, fees);
-  const quoteIntoPool = userQuoteIn - split.protocol - split.coinCreator;
+  const grossSplit = splitFromGross(userQuoteIn, fees);
+  const split = grossSplit.fees;
+  const quoteIntoPool = grossSplit.intoPool;
   const k = reserves.base * reserves.quote;
   const newQuote = reserves.quote + quoteIntoPool;
   const newBase = k / newQuote;
@@ -151,6 +197,7 @@ export function quoteBuy(
     userQuoteIn,
     quoteIntoPool,
     fees: split,
+    netQuote: grossSplit.net,
     baseOut,
     reservesAfter,
     priceBefore,

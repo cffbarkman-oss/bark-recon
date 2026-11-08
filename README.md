@@ -69,7 +69,7 @@ npm run build
 npm test
 ~~~
 
-All 129 tests run offline. No API keys, no RPC endpoint, no network.
+All 134 tests run offline. No API keys, no RPC endpoint, no network.
 
 Then, against a live endpoint:
 

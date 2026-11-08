@@ -105,10 +105,47 @@ reconcile fee totals against a percentage.
 
 ---
 
+## Buy event, and the asymmetry that matters
+
+A live buy was captured after the sell: **515 bytes**, same discriminator family, decoded in full.
+
+| Field | Captured |
+| --- | --- |
+| quote_amount_in | 37,575,185,568 |
+| user_quote_amount_in | 37,462,797,176 |
+| lp_fee_basis_points / lp_fee | 25 / 93,656,993 |
+| protocol_fee_basis_points / protocol_fee | 5 / 18,731,399 |
+| coin_creator_fee | 0 |
+| quote_amount_in_with_lp_fee | 37,556,454,169 |
+| base_amount_out | 19,063,707 |
+
+**Buys charge fees on the net amount; sells charge them on the gross.**
+
+~~~text
+sell:  fee = ceil(gross_output x bps / 10,000)
+buy:   fee = ceil(net_input    x bps / 10,000)
+
+buy, verified:  net 37,462,797,176 x 5 bps  = 18,731,399  (matches)
+                gross 37,575,185,568 x 5 bps = 18,787,593  (56,194 too high)
+~~~
+
+Getting this backwards understates every buy fee by roughly the fee rate, which compounds into
+every PnL number a terminal shows. The two identities that hold:
+
+~~~text
+gross = net + lp_fee + protocol_fee + creator_fee
+quote_amount_in_with_lp_fee = gross - protocol_fee - creator_fee   (= net + lp_fee)
+~~~
+
+which is why the pool absorbs net plus the LP fee, and why the LP fee is the only fee that stays
+inside it.
+
+---
+
 ## Pricing: what is verified and what is not
 
-Verified: the fee split, the direction of movement, and that the pool's quote side falls by the
-gross, not by the user's proceeds.
+Verified: the fee split on both sides (including the buy/sell fee-base asymmetry above), the
+direction of movement, and that the pool's quote side falls by the gross on a sell.
 
 **Not verified: exact pricing from post-state reserves.**
 
@@ -134,5 +171,5 @@ Practical guidance for Bark:
 1. What are the 14 trailing bytes of the Pool account?
 2. Why does a 0.026% reserve error produce a 2.8% output error - which term is missing?
 3. Does virtual_quote_reserves participate in pricing, and in which direction?
-4. No BuyEvent was captured; the buy-side field relationships are inferred from the schema
-   (quote_amount_in_with_lp_fee implies the LP fee stays in the pool).
+4. Whether the 2.8% reconstruction error also affects buys - the captured buy decodes exactly,
+   but its pool state has not been replayed against a subsequent trade.
