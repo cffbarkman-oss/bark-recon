@@ -20,17 +20,17 @@ function account(amount: bigint): Uint8Array {
 }
 
 test("reads mint, owner and amount from a token account", () => {
-  const decoded = decodeTokenAccount("ata", account(704_144_990_476_900n));
+  const decoded = decodeTokenAccount(OWNER, account(704_144_990_476_900n));
   assert.equal(decoded.mint.toBase58(), MINT);
   assert.equal(decoded.owner.toBase58(), OWNER);
   assert.equal(decoded.amount, 704_144_990_476_900n);
 });
 
 test("handles zero and maximum amounts", () => {
-  assert.equal(decodeTokenAccount("ata", account(0n)).amount, 0n);
-  assert.equal(decodeTokenAccount("ata", account(2n ** 64n - 1n)).amount, 2n ** 64n - 1n);
+  assert.equal(decodeTokenAccount(OWNER, account(0n)).amount, 0n);
+  assert.equal(decodeTokenAccount(OWNER, account(2n ** 64n - 1n)).amount, 2n ** 64n - 1n);
 });
 
 test("rejects truncated accounts", () => {
-  assert.throws(() => decodeTokenAccount("ata", new Uint8Array(100)), /too short/);
+  assert.throws(() => decodeTokenAccount(OWNER, new Uint8Array(100)), /too short/);
 });
