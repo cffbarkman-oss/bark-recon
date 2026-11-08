@@ -5,6 +5,7 @@
  * derivation and integer money math. Product code belongs in higher packages.
  */
 
+export * from "./account-data.js";
 export * from "./base58.js";
 export * from "./bytes.js";
 export * from "./ed25519.js";

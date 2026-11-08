@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { RpcTransaction } from "@bark/solana";
-import { nativeFlows, reconcileTrade } from "../src/settlement.js";
+import { accountKeyList, nativeFlows, reconcileTrade } from "../src/settlement.js";
 import { parsePumpLogs } from "../src/parse.js";
 import { TRADE_CAPTURE } from "./fixtures.js";
 
@@ -41,6 +41,23 @@ test("native flows report signed deltas, largest first", () => {
   assert.equal(flows[0]?.delta, 1_523_511_448n);
   assert.equal(flows[1]?.delta, 7_408_479n);
   assert.equal(flows[2]?.delta, -1_559_679_685n);
+});
+
+test("includes address-lookup-table keys in balance order", () => {
+  const tx = transaction();
+  tx.transaction.message.accountKeys = [{ pubkey: USER }];
+  tx.meta!.loadedAddresses = { writable: [CURVE], readonly: [FEE_RECIPIENT] };
+  tx.meta!.preBalances = [1_000_000_000, 5_000_000_000, 10_000_000];
+  tx.meta!.postBalances = [
+    1_000_000_000 + 1_523_511_448,
+    5_000_000_000 - 1_559_679_685,
+    10_000_000 + 7_408_479,
+  ];
+
+  assert.deepEqual(accountKeyList(tx), [USER, CURVE, FEE_RECIPIENT]);
+  const flows = nativeFlows(tx);
+  assert.equal(flows.length, 3);
+  assert.equal(flows.find((f) => f.address === CURVE)?.delta, -1_559_679_685n);
 });
 
 test("reconciles a sell against what the user actually received", () => {

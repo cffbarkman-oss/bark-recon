@@ -1,0 +1,16 @@
+{
+  "name": "@bark/cli",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Command-line inspector for pump.fun activity on Solana: decode a transaction, inspect a curve, reconcile settlement.",
+  "type": "module",
+  "main": "./dist/src/main.js",
+  "bin": {
+    "bark-recon": "./dist/src/main.js"
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@bark/pumpfun": "0.1.0",
+    "@bark/solana": "0.1.0"
+  }
+}

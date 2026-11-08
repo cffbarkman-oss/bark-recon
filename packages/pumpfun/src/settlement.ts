@@ -16,13 +16,31 @@ export interface NativeFlow {
   delta: bigint;
 }
 
+/**
+ * Every account in the transaction, in balance-array order.
+ *
+ * Versioned transactions resolve most accounts through address lookup tables,
+ * so message.accountKeys holds only the static prefix. The balance arrays cover
+ * static keys, then loaded writable, then loaded readonly - in that order.
+ * Indexing balances against message.accountKeys alone silently attributes one
+ * account's lamports to another.
+ */
+export function accountKeyList(transaction: RpcTransaction): string[] {
+  const keys = transaction.transaction.message.accountKeys.map((key) => key.pubkey);
+  const loaded = transaction.meta?.loadedAddresses;
+  if (loaded === undefined) {
+    return keys;
+  }
+  return [...keys, ...(loaded.writable ?? []), ...(loaded.readonly ?? [])];
+}
+
 /** Native lamport deltas for every account touched by the transaction. */
 export function nativeFlows(transaction: RpcTransaction): NativeFlow[] {
   const meta = transaction.meta;
   if (meta === null) {
     return [];
   }
-  const keys = transaction.transaction.message.accountKeys.map((key) => key.pubkey);
+  const keys = accountKeyList(transaction);
   const flows: NativeFlow[] = [];
   for (let i = 0; i < keys.length; i += 1) {
     const before = meta.preBalances[i];

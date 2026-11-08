@@ -34,6 +34,7 @@ So that is what this repo does, and then packages the result as reusable code.
 | [@bark/pumpfun](packages/pumpfun) | curve math, account + event decoders, transaction parser | @bark/solana |
 | [@bark/market-intel](packages/market-intel) | concentration, wallet clustering, bundle detection, dev history, explainable risk | @bark/solana |
 | [@bark/venues](packages/venues) | one adapter interface over Jupiter, DexScreener, pump.fun, fomo, Axiom | @bark/solana |
+| [@bark/cli](packages/cli) | `bark-recon capture` / `bark-recon curve` for live debugging | all of the above |
 
 ---
 
@@ -64,7 +65,18 @@ npm run build
 npm test
 ~~~
 
-All 76 tests run offline. No API keys, no RPC endpoint, no network.
+All 87 tests run offline. No API keys, no RPC endpoint, no network.
+
+Then, against a live endpoint:
+
+~~~bash
+export SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+npm run recon -- curve DGfgKzvaiBnU3nfPywB952u3QAeCBAsDySXtPDgMn5GB
+npm run recon -- capture <signature> --json
+~~~
+
+The capture command prints decoded trades, fees, launches and the balance-delta settlement that
+shows where the money actually went.
 
 ---
 

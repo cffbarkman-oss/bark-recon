@@ -12,10 +12,11 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/solana packages/pumpfun packages/market-intel packages/venues",
-    "clean": "tsc -b --clean packages/solana packages/pumpfun packages/market-intel packages/venues",
+    "build": "tsc -b packages/solana packages/pumpfun packages/market-intel packages/venues packages/cli",
+    "clean": "tsc -b --clean packages/solana packages/pumpfun packages/market-intel packages/venues packages/cli",
     "typecheck": "tsc -b --pretty false",
-    "test": "node --test packages/solana/dist/test/*.test.js packages/pumpfun/dist/test/*.test.js packages/market-intel/dist/test/*.test.js packages/venues/dist/test/*.test.js",
+    "test": "node --test packages/solana/dist/test/*.test.js packages/pumpfun/dist/test/*.test.js packages/market-intel/dist/test/*.test.js packages/venues/dist/test/*.test.js packages/cli/dist/test/*.test.js",
+    "recon": "node packages/cli/dist/src/main.js",
     "verify": "npm run build && npm test"
   },
   "devDependencies": {

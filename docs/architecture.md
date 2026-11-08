@@ -15,6 +15,8 @@ that only one layer talks to the network.
            @bark/solana         bytes, addresses, money, RPC
                  |
         @bark/venues  ->  external HTTP
+                 |
+         @bark/cli           operator tooling over all of it
 ~~~
 
 Two rules make the layering worth having:
@@ -95,7 +97,7 @@ computes. A score with no factors is a vendor opinion wearing a percentage sign.
 
 ## Testing strategy
 
-The suite is offline and deterministic: **76 tests, no network**.
+The suite is offline and deterministic: **87 tests, no network**.
 
 Three tiers:
 

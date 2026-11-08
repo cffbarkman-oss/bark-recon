@@ -8,6 +8,7 @@
 
 export * from "./accounts.js";
 export * from "./curve.js";
+export * from "./derive.js";
 export * from "./events.js";
 export * from "./parse.js";
 export * from "./programs.js";

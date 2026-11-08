@@ -129,6 +129,14 @@ Legacy launches: **49 bytes**, same discriminator, body stops after *complete*.
 
 Verified invariant: **virtual_quote_reserves - real_quote_reserves = 30,000,000,000 exactly.**
 
+Two timing caveats on the numbers above. The account was read later than the trade, so its
+reserves are already lower than the event's (39.14 vs 39.85 SOL) - expected, and the reason an
+indexer must trust the event for trade-time state. Second, the creator field is **mutable**:
+re-reading the same account hours later showed a different creator
+(4sx4Acnb...5ob3p2), consistent with set_creator / admin_cto reassignment. Creator identity is
+not an immutable key - dev-history features must follow the reassignment, not cache the first
+value.
+
 The token side is *not* exact: 822,273,624,860,714 - 542,373,624,860,714 = 279,900,000,000,000,
 which is 100,000,000,000 below the 280,000,000,000,000 seeding gap. Integer division floors on
 every trade and the drift accumulates. Code that assumes both sides hold a constant will be
@@ -281,6 +289,17 @@ On the captured trade, totalCosts is 36,168,237 lamports while the named fees su
 35,897,834. The 265,403 difference is account rent, not a fee. A PnL view that models
 "gross minus protocol minus creator" would be wrong by exactly that much on every trade.
 
+### Balance arrays include lookup-table accounts
+
+This is the trap that makes naive reconciliation silently wrong. Versioned transactions resolve
+most accounts through address lookup tables, so message.accountKeys holds only the static
+prefix. The balance arrays cover static keys, then loaded writable, then loaded readonly.
+
+Indexing balances against message.accountKeys alone does not merely drop accounts - it shifts
+every value after the boundary onto the wrong address. The captured trade has 24 static keys and
+more loaded ones; reading only the static prefix reported three credits where the full set is
+five. accountKeyList() in settlement.ts builds the correct order.
+
 ---
 
 ## Curve math
@@ -354,8 +373,11 @@ input exactly. That check should be in every decoder that touches money.
 
 1. Why does the curve account report creator_fee_bps = 0 while the trade charges 30 bps?
 2. Why does the router log fee_bps = 100 when the protocol fee is 95 bps?
-3. The captured 166-byte curve (DGfgKzva...Mn5GB) is not reproducible from the classic
-   bonding-curve seed set or from obvious (mint, creator) variants. Index curves from
-   transactions rather than deriving them until this is settled.
+3. Derivation is settled for current launches and not for older ones. Seeds
+   ("bonding-curve", mint) under 6EF8 reproduce the launch captured here exactly (bump 255),
+   and @bark/pumpfun ships that derivation. But the 166-byte curve DGfgKzva...Mn5GB sampled
+   from a sell that same day is not derivable from its mint under this seed set, nor under 384
+   other seed/provider combinations tested. Treat derivation as an optimisation for new
+   launches and always confirm the account exists - index addresses seen in transactions.
 4. Shareholder-vector events have not been observed yet; the decoder handles them but the
    offsets are untested against a live sample.
