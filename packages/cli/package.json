@@ -12,6 +12,7 @@
   "dependencies": {
     "@bark/market-intel": "0.1.0",
     "@bark/pumpfun": "0.1.0",
+    "@bark/pumpswap": "0.1.0",
     "@bark/solana": "0.1.0"
   }
 }

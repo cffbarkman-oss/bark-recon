@@ -9,6 +9,7 @@
   "references": [
     { "path": "../solana" },
     { "path": "../pumpfun" },
-    { "path": "../market-intel" }
+    { "path": "../market-intel" },
+    { "path": "../pumpswap" }
   ]
 }

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { SolanaRpc, decodeAccountData } from "@bark/solana";
+import { SolanaRpc, decodeAccountData, decodeTokenAccount } from "@bark/solana";
+import { decodePool } from "@bark/pumpswap";
+import { renderPool } from "./pool.js";
 import {
   decodeBondingCurve,
   deriveBondingCurveAddress,
@@ -21,6 +23,7 @@ const USAGE = [
   "  bark-recon capture <signature> [--rpc <url>] [--json]",
   "  bark-recon curve <mint-or-curve-address> [--rpc <url>] [--json]",
   "  bark-recon holders <mint> [--rpc <url>] [--json]",
+  "  bark-recon pool <pool-address> [--rpc <url>] [--json]",
   "  bark-recon watch [--seconds 30] [--json]",
   "",
   "Environment:",
@@ -176,6 +179,44 @@ async function runHolders(rpc: SolanaRpc, mint: string, json: boolean): Promise<
   process.stdout.write(renderHolders(mint, snapshot, report, supply.decimals) + String.fromCharCode(10));
 }
 
+async function runPool(rpc: SolanaRpc, target: string, json: boolean): Promise<void> {
+  const poolAccount = await rpc.getAccountInfo(target);
+  if (poolAccount === null) {
+    fail("no account at " + target, 1);
+  }
+  const pool = decodePool(target, decodeAccountData(poolAccount));
+
+  const [baseAccount, quoteAccount] = await Promise.all([
+    rpc.getAccountInfo(pool.poolBaseTokenAccount.toBase58()),
+    rpc.getAccountInfo(pool.poolQuoteTokenAccount.toBase58()),
+  ]);
+  if (baseAccount === null || quoteAccount === null) {
+    fail("pool token accounts are missing", 1);
+  }
+  const base = decodeTokenAccount(pool.poolBaseTokenAccount.toBase58(), decodeAccountData(baseAccount));
+  const quote = decodeTokenAccount(pool.poolQuoteTokenAccount.toBase58(), decodeAccountData(quoteAccount));
+
+  const reserves = {
+    base: base.amount,
+    quote: quote.amount,
+    virtualQuote: pool.virtualQuoteReserves,
+  };
+
+  if (json) {
+    process.stdout.write(JSON.stringify({
+      pool: pool.address.toBase58(),
+      baseMint: pool.baseMint.toBase58(),
+      quoteMint: pool.quoteMint.toBase58(),
+      baseReserves: reserves.base.toString(),
+      quoteReserves: reserves.quote.toString(),
+      virtualQuoteReserves: reserves.virtualQuote.toString(),
+      lpSupply: pool.lpSupply.toString(),
+    }, null, 2) + String.fromCharCode(10));
+    return;
+  }
+  process.stdout.write(renderPool(pool, reserves, { baseDecimals: 6, quoteDecimals: 9 }) + String.fromCharCode(10));
+}
+
 async function runWatch(seconds: number, json: boolean): Promise<void> {
   const launches: string[] = [];
   const watcher = new PumpLaunchWatcher({
@@ -243,6 +284,10 @@ async function main(): Promise<void> {
     }
     if (args.command === "holders") {
       await runHolders(rpc, args.target, args.json);
+      return;
+    }
+    if (args.command === "pool") {
+      await runPool(rpc, args.target, args.json);
       return;
     }
     if (args.command === "watch") {

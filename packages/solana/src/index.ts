@@ -12,6 +12,7 @@ export * from "./ed25519.js";
 export * from "./pda.js";
 export * from "./public-key.js";
 export * from "./rpc.js";
+export * from "./token-account.js";
 export * from "./types.js";
 export * from "./units.js";
 export * from "./ws.js";
