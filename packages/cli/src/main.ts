@@ -9,7 +9,9 @@ import {
   reconcileTrade,
   type BondingCurveAccount,
 } from "@bark/pumpfun";
+import { analyseConcentration, buildHolderSnapshot } from "@bark/market-intel";
 import { renderCurve, renderTransaction } from "./render.js";
+import { renderHolders } from "./holders.js";
 
 const USAGE = [
   "bark-recon - inspect pump.fun activity on Solana",
@@ -17,6 +19,7 @@ const USAGE = [
   "Usage:",
   "  bark-recon capture <signature> [--rpc <url>] [--json]",
   "  bark-recon curve <mint-or-curve-address> [--rpc <url>] [--json]",
+  "  bark-recon holders <mint> [--rpc <url>] [--json]",
   "",
   "Environment:",
   "  SOLANA_RPC_URL   endpoint to use when --rpc is omitted",
@@ -130,6 +133,39 @@ async function runCurve(rpc: SolanaRpc, target: string, json: boolean): Promise<
   process.stdout.write(renderCurve(curve) + String.fromCharCode(10));
 }
 
+async function runHolders(rpc: SolanaRpc, mint: string, json: boolean): Promise<void> {
+  const supply = await rpc.getTokenSupply(mint);
+  if (supply === null) {
+    fail("no token supply for " + mint, 1);
+  }
+  const largest = await rpc.getTokenLargestAccounts(mint);
+  const snapshot = buildHolderSnapshot(
+    largest.map((account) => ({ address: account.address, amount: BigInt(account.amount) })),
+  );
+  const report = analyseConcentration(snapshot.balances, BigInt(supply.amount));
+
+  if (json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          mint,
+          decimals: supply.decimals,
+          covered: snapshot.coveredAccounts,
+          truncated: snapshot.truncated,
+          topShares: report.topShares,
+          hhi: report.hhi,
+          gini: report.gini,
+          effectiveHolders: report.effectiveHolders,
+        },
+        null,
+        2,
+      ) + String.fromCharCode(10),
+    );
+    return;
+  }
+  process.stdout.write(renderHolders(mint, snapshot, report, supply.decimals) + String.fromCharCode(10));
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -157,9 +193,18 @@ async function main(): Promise<void> {
       await runCurve(rpc, args.target, args.json);
       return;
     }
+    if (args.command === "holders") {
+      await runHolders(rpc, args.target, args.json);
+      return;
+    }
     fail("unknown command: " + args.command + String.fromCharCode(10) + USAGE, 2);
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error), 1);
+    const message = error instanceof Error ? error.message : String(error);
+    const hint = message.includes("429")
+      ? String.fromCharCode(10) +
+        "hint: the public RPC throttles holder and account queries. Point SOLANA_RPC_URL or --rpc at your own endpoint."
+      : "";
+    fail(message + hint, 1);
   }
 }
 

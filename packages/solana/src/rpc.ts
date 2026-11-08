@@ -2,6 +2,8 @@ import type {
   RpcAccountInfo,
   RpcBlockhash,
   RpcSignatureInfo,
+  RpcTokenLargestAccount,
+  RpcTokenSupply,
   RpcTransaction,
   RpcValueResponse,
 } from "./types.js";
@@ -263,6 +265,29 @@ export class SolanaRpc {
       params.until = options.until;
     }
     return this.call<RpcSignatureInfo[]>("getSignaturesForAddress", [address, params]);
+  }
+
+  /**
+   * Largest token accounts for a mint.
+   *
+   * The RPC caps this at 20 accounts regardless of the limit passed. That is
+   * enough for top-N concentration (which is the metric that matters) but not
+   * for a full holder distribution - that needs an indexer.
+   */
+  async getTokenLargestAccounts(mint: string): Promise<RpcTokenLargestAccount[]> {
+    const response = await this.call<RpcValueResponse<RpcTokenLargestAccount[]>>(
+      "getTokenLargestAccounts",
+      [mint, { commitment: "confirmed" }],
+    );
+    return response.value ?? [];
+  }
+
+  async getTokenSupply(mint: string): Promise<RpcTokenSupply | null> {
+    const response = await this.call<RpcValueResponse<RpcTokenSupply>>("getTokenSupply", [
+      mint,
+      { commitment: "confirmed" },
+    ]);
+    return response.value ?? null;
   }
 
   async getLatestBlockhash(): Promise<RpcBlockhash> {

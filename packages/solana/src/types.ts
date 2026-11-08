@@ -105,6 +105,21 @@ export interface RpcSignatureInfo {
   confirmationStatus?: "processed" | "confirmed" | "finalized";
 }
 
+export interface RpcTokenLargestAccount {
+  address: string;
+  amount: string;
+  decimals: number;
+  uiAmount: number | null;
+  uiAmountString: string;
+}
+
+export interface RpcTokenSupply {
+  amount: string;
+  decimals: number;
+  uiAmount: number | null;
+  uiAmountString: string;
+}
+
 export interface RpcBlockhash {
   blockhash: string;
   lastValidBlockHeight: number;

@@ -8,6 +8,7 @@
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "references": [
     { "path": "../solana" },
-    { "path": "../pumpfun" }
+    { "path": "../pumpfun" },
+    { "path": "../market-intel" }
   ]
 }
