@@ -229,13 +229,24 @@ export class SolanaRpc {
     return response.value ?? [];
   }
 
-  async getTransaction(signature: string): Promise<RpcTransaction | null> {
+  /**
+   * Fetches a confirmed transaction.
+   *
+   * Defaults to maxSupportedTransactionVersion 1. pump.fun launches now arrive
+   * as version-1 transactions, and a client pinned to 0 is rejected outright
+   * with -32015 rather than quietly returning null - which is how an indexer
+   * ends up missing every launch while looking healthy.
+   */
+  async getTransaction(
+    signature: string,
+    options: { version?: number } = {},
+  ): Promise<RpcTransaction | null> {
     return this.call<RpcTransaction | null>("getTransaction", [
       signature,
       {
         encoding: "jsonParsed",
         commitment: "confirmed",
-        maxSupportedTransactionVersion: 0,
+        maxSupportedTransactionVersion: options.version ?? 1,
       },
     ]);
   }

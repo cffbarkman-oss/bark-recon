@@ -95,7 +95,7 @@ computes. A score with no factors is a vendor opinion wearing a percentage sign.
 
 ## Testing strategy
 
-The suite is offline and deterministic: **69 tests, no network**.
+The suite is offline and deterministic: **76 tests, no network**.
 
 Three tiers:
 
@@ -112,10 +112,11 @@ When the protocol changes, tier 2 fails first. That is the point.
 
 ## Suggested next steps
 
-1. **Reconcile the fee model.** Three sources disagree (global 95 bps, log 100 bps, event slot
-   repurposed). Decide from balance deltas and write it down.
-2. **Finish TradeEvent v2.** Collect ~20 more samples, decode bytes 201..391, and version the
-   decoder rather than mutating it.
+1. **Model rent in PnL.** Fees and rent are both deducted from a trader's balance; on the
+   captured trade rent was 265,403 lamports against 35,897,834 of fees. Reconcile from balance
+   deltas rather than summing fee fields.
+2. **Version the decoders.** TradeEvent now ends in a variable-length ix_name and can carry a
+   shareholder vector, so offsets are not stable past a point. Keep the length-keyed dispatch.
 3. **Settle v2 curve derivation.** Either find the seed namespace or make curve discovery
    event-driven everywhere.
 4. **Build a reconciler.** For every tracked mint, compare indexer state to on-chain reserves on

@@ -46,9 +46,13 @@ Every fact in this repository carries one of three labels:
 - **documented** - taken from a public spec or docs, not reproduced here.
 - **unknown** - explicitly not claimed, and usually surfaced as raw bytes for a later pass.
 
-The pump.fun decoders are wired directly to a captured transaction
-([four.four...](docs/evidence/mainnet-2026-11-08.json)) so that a wrong offset breaks a test
-rather than a launch.
+The pump.fun decoders are wired to two captured transactions
+([evidence](docs/evidence/mainnet-2026-11-08.json)) - a sell on an established curve and a
+complete launch - so that a wrong offset breaks a test rather than a launch.
+
+Field names are cross-checked against the Anchor IDL published in `@pump-fun/pump-sdk` 4.3.1
+(MIT), then re-derived from the bytes: every account and event decode consumes its input
+exactly, and every fee field equals ceil(amount x bps) to the lamport.
 
 ---
 
@@ -60,7 +64,7 @@ npm run build
 npm test
 ~~~
 
-All 69 tests run offline. No API keys, no RPC endpoint, no network.
+All 76 tests run offline. No API keys, no RPC endpoint, no network.
 
 ---
 
@@ -114,9 +118,10 @@ const risk = assessRisk({ concentration, bundles, liquidityUsd, holderCount });
 
 - The curve is constant-product over **virtual** reserves; virtual SOL = real SOL + 30 SOL.
 - Quote in integers and floor the output. Never quote one unit optimistically.
-- Charge fees on the SOL side before touching the curve, and split protocol/creator fees
-  explicitly so the UI can show them.
-- Graduation is a real-SOL threshold, not a market-cap threshold.
+- Charge fees on the **quote** side before touching the curve, and round them **up**: the
+  protocol charges ceil(amount x 95 bps) and the creator ceil(amount x 30 bps).
+- Graduation is a real-quote threshold, not a market-cap threshold - and it is derived from the
+  reserve constants (85,005,359,056 lamports for the observed parameters), not hardcoded to 85.
 
 **Terminal**
 
@@ -130,7 +135,10 @@ const risk = assessRisk({ concentration, bundles, liquidityUsd, holderCount });
 
 - Public RPC endpoints fail by rate-limiting, not by lying. Retry with jitter and honour
   Retry-After; never retry a write.
-- Decode by length and discriminator, and keep unknown bytes. Protocol upgrades are normal.
+- Decode by length and discriminator, and keep unknown bytes. Protocol upgrades are normal:
+  `TradeEvent` kept its discriminator while offset 153 changed from a fee amount to fee bps.
+- Request `maxSupportedTransactionVersion: 1`. Launches are now v1 transactions and a v0 client
+  gets an error, not a null.
 
 ---
 

@@ -1,11 +1,22 @@
 # pump.fun: protocol findings
 
-Captured **2026-11-08** against mainnet-beta at slot **466,943,651**.
+Captured **2026-11-08** against mainnet-beta. Two transactions, two accounts, plus a live
+log subscription that caught a launch in progress.
 
-Evidence: [mainnet-2026-11-08.json](evidence/mainnet-2026-11-08.json) (raw bytes for one
-transaction, one bonding-curve account and the global config account).
+Evidence: [mainnet-2026-11-08.json](evidence/mainnet-2026-11-08.json) - raw bytes, log lines and
+account data for a sell on an established curve and for a full create-and-buy launch.
 
-Everything below is **observed** unless marked otherwise.
+Field names come from the Anchor IDL published in **@pump-fun/pump-sdk 4.3.1** (MIT). That IDL
+is a specification, not proof, so every offset below was re-derived from the captured bytes:
+
+- BondingCurve decodes to exactly 166 bytes with nothing left over.
+- Global decodes to exactly 1088 bytes with nothing left over.
+- TradeEvent decodes to exactly 383 body bytes for a sell and 382 for a buy.
+- CreateEvent decodes to exactly 335 body bytes.
+- Every fee field equals ceil(amount x basis points), to the lamport.
+
+When a decode consumes its input exactly, the field order is right. That is the check that
+makes these tables trustworthy rather than plausible.
 
 ---
 
@@ -13,183 +24,338 @@ Everything below is **observed** unless marked otherwise.
 
 | Role | Address | Evidence |
 | --- | --- | --- |
-| Bonding curve program | 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P | owner of the 166-byte curve account |
+| Bonding curve program | 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P | owner of curve accounts, emits events |
 | Router (current frontend path) | m9obQHAPyZeZ88w7XUY8Te6a8rBmhXsfKco7u8G8tnB | top-level instruction, CPIs into 6EF8 |
 | Fee program | pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ | inner instruction on every trade |
-| Token program | TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb | mint + token accounts are Token-2022 |
+| Token program | TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb | mints and accounts are Token-2022 |
 | Global config | 4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf | 1088 bytes, owner 6EF8 |
 
-The important structural finding: **the frontend no longer calls the bonding-curve program
-directly.** It calls a router, which CPIs into 6EF8 and the fee program. Any integration that
-hard-codes "instruction 0 is a pump buy" will silently stop working.
+The frontend does **not** call the bonding-curve program directly. It calls the router, which
+CPIs into 6EF8 and the fee program. Any integration that assumes "instruction 0 is a pump buy"
+breaks silently.
 
 ---
 
-## Global configuration
+## Hazard: transactions are now version 1
+
+The launch captured here is a **version-1 transaction**. A client pinned to
+maxSupportedTransactionVersion 0 is rejected by the RPC with error -32015 - it does not return
+null, it errors.
+
+An indexer that keeps running while swallowing that error will miss launches and look perfectly
+healthy. @bark/solana now requests version 1 by default.
+
+---
+
+## Launch flow
+
+A current launch is a single version-1 transaction with two pump instructions:
+
+| # | Program | Instruction | Discriminator | Accounts |
+| --- | --- | --- | --- | --- |
+| 1 | 6EF8 | create_v2 | d6904cec5f8b31b4 | 16 |
+| 2 | AToken | create idempotent ATA | - | - |
+| 3 | 6EF8 | buy_v2 | b817ee6167c5d33d | 27 |
+
+Instruction 1 creates the mint and the curve; instruction 3 is the creator's own initial buy in
+the same transaction. This is why "first buyers in the same slot" heuristics need care: the
+creator is structurally one of them.
+
+Accounts touched: 36. The create call CPIs into Token-2022 (InitializeMint2, metadata, mint to
+curve), and one inner CPI targets an external program (MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e)
+that is not part of the pump IDL.
+
+---
+
+## CreateEvent
+
+343 bytes total, discriminator 1b72a94ddeeb6376.
+
+| Offset | Size | Field | Captured value |
+| --- | --- | --- | --- |
+| 0 | 4+2 | name (string) | "79" |
+| 6 | 4+2 | symbol (string) | "79" |
+| 12 | 4+61 | uri (string) | ipfs link, 61 chars |
+| 73 | 32 | mint | e58b6e47...c84f |
+| 105 | 32 | bonding_curve | 85c823fb...e375 |
+| 137 | 32 | user | e4a850e0...df52 |
+| 169 | 32 | creator | e4a850e0...df52 |
+| 201 | 8 | timestamp | 1,794,150,373 |
+| 209 | 8 | virtual_token_reserves | 1,073,000,000,000,000 |
+| 217 | 8 | virtual_sol_reserves | 30,000,000,000 |
+| 225 | 8 | real_token_reserves | 793,100,000,000,000 |
+| 233 | 8 | token_total_supply | 1,000,000,000,000,000 |
+| 241 | 32 | token_program | Token-2022 |
+| 273 | 1 | is_mayhem_mode | true |
+| 274 | 1 | is_cashback_enabled | false |
+| 275 | 32 | quote_mint | zeroed |
+| 307 | 8 | virtual_quote_reserves | 30,000,000,000 |
+| 315 | 8 | creator_fee_bps | 0 |
+| 323 | 1 | is_holder_reward | false |
+| 324 | 1 | depth | 0 |
+
+Variable-length strings mean a decoder cannot index this payload; it has to walk it.
+That is exactly how a fixed-offset parser ends up reading "79" as a pubkey.
+
+---
+
+## BondingCurve account
+
+Current launches: **166 bytes**, discriminator 17b7f83760d8ac60.
+Legacy launches: **49 bytes**, same discriminator, body stops after *complete*.
+
+| Offset | Size | Field | Captured value |
+| --- | --- | --- | --- |
+| 0 | 8 | discriminator | 17b7f83760d8ac60 |
+| 8 | 8 | virtual_token_reserves | 822,273,624,860,714 |
+| 16 | 8 | virtual_quote_reserves | 39,147,553,199 |
+| 24 | 8 | real_token_reserves | 542,373,624,860,714 |
+| 32 | 8 | real_quote_reserves | 9,147,553,199 |
+| 40 | 8 | token_total_supply | 1,000,000,000,000,000 |
+| 48 | 1 | complete | false |
+| 49 | 32 | creator | 39a05a05...4f65f |
+| 81 | 1 | is_mayhem_mode | false |
+| 82 | 1 | is_cashback_coin | false |
+| 83 | 32 | quote_mint | zeroed (SOL) |
+| 115 | 8 | creator_fee_bps | 0 |
+| 123 | 1 | can_edit_creator_fee | false |
+| 124 | 1 | is_holder_reward | false |
+| 125 | 8 | creator_fee (accrued) | 110,997,350 |
+| 133 | 8 | protocol_fees (accrued) | 440,300,832 |
+| 141 | 1 | depth | 0 |
+| 142 | 8 | initial_virtual_quote_reserves | 30,000,000,000 |
+| 150 | 8 | post_complete_base_out | 0 |
+| 158 | 8 | post_complete_quote_in | 0 |
+
+Verified invariant: **virtual_quote_reserves - real_quote_reserves = 30,000,000,000 exactly.**
+
+The token side is *not* exact: 822,273,624,860,714 - 542,373,624,860,714 = 279,900,000,000,000,
+which is 100,000,000,000 below the 280,000,000,000,000 seeding gap. Integer division floors on
+every trade and the drift accumulates. Code that assumes both sides hold a constant will be
+wrong on one of them.
+
+---
+
+## Global account
 
 1088 bytes, discriminator a7e8e8b1c86c727f.
 
-| Offset | Size | Field | Observed value |
+| Offset | Size | Field | Captured value |
 | --- | --- | --- | --- |
-| 0 | 8 | discriminator | a7e8e8b1c86c727f |
-| 8 | 1 | initialised | 1 |
+| 8 | 1 | initialized | true |
 | 9 | 32 | authority | d3bb8cab...02aa |
-| 41 | 32 | fee recipient | 4ac2f8d0...b3e6 |
-| 73 | 8 | initial virtual token reserves | 1,073,000,000,000,000 |
-| 81 | 8 | initial virtual SOL reserves | 30,000,000,000 lamports |
-| 89 | 8 | initial real token reserves | 793,100,000,000,000 |
-| 97 | 8 | token total supply | 1,000,000,000,000,000 |
-| 105 | 8 | fee basis points | **95** |
-| 113 | 1 | bump (unconfirmed) | 0x1f |
+| 41 | 32 | fee_recipient | 4ac2f8d0...b3e6 |
+| 73 | 8 | initial_virtual_token_reserves | 1,073,000,000,000,000 |
+| 81 | 8 | initial_virtual_sol_reserves | 30,000,000,000 |
+| 89 | 8 | initial_real_token_reserves | 793,100,000,000,000 |
+| 97 | 8 | token_total_supply | 1,000,000,000,000,000 |
+| 105 | 8 | fee_basis_points | **95** |
+| 113 | 32 | withdraw_authority | ... |
+| 145 | 1 | enable_migrate | true |
+| 146 | 8 | pool_migration_fee | 15,000,001 |
+| 154 | 8 | creator_fee_basis_points | **5** |
+| 162 | 7x32 | fee_recipients | 7 keys |
+| 386 | 32 | set_creator_authority | ... |
+| 418 | 32 | admin_set_creator_authority | ... |
+| 450 | 1 | create_v2_enabled | true |
+| 451 | 32 | whitelist_pda | ... |
+| 483 | 32 | reserved_fee_recipient | ... |
+| 515 | 1 | mayhem_mode_enabled | true |
+| 516 | 7x32 | reserved_fee_recipients | 7 keys |
+| 740 | 1 | is_cashback_enabled | true |
+| 741 | 8x32 | buyback_fee_recipients | 8 keys |
+| 997 | 8 | buyback_basis_points | **5000** |
+| 1005 | 8 | initial_virtual_quote_reserves | 4,292,000,000 |
+| 1013 | 32 | whitelisted_quote_mints | 1 key |
+| 1045 | 1 | creator_fee_configurable | true |
+| 1046 | 8 | max_configurable_creator_fee_bps | **300** |
+| 1054 | 32 | holder_reward_claim_authority | ... |
+| 1086 | 1 | is_holder_reward_enabled | true |
+| 1087 | 1 | max_curve_depth | 2 |
 
-Two cross-checks make this layout trustworthy:
-
-1. The fee recipient at offset 41 is byte-identical to the feeRecipient inside the live
-   TradeEvent, and that account received lamports in the same transaction.
-2. The three reserve constants are exactly the long-standing pump.fun launch parameters
-   (1.073B virtual, 793.1M real, 30 SOL virtual, 1B supply).
-
-The 95 bps value is worth flagging: the transaction log says **fee_bps=100** while the global
-account says **95**, and the event carries **95** in the slot the old layout called feeAmount.
-Treat 95 as a creator-fee rate and 100 as the protocol rate until someone reconciles them.
-
----
-
-## Bonding curve account
-
-Current launches: **166 bytes**, discriminator 17b7f83760d8ac60.
-Legacy launches: **49 bytes**, same discriminator, same body, no creator and no tail.
-
-| Offset | Size | Field |
-| --- | --- | --- |
-| 0 | 8 | discriminator 17b7f83760d8ac60 |
-| 8 | 8 | virtualTokenReserves |
-| 16 | 8 | virtualSolReserves |
-| 24 | 8 | realTokenReserves |
-| 32 | 8 | realSolReserves |
-| 40 | 8 | tokenTotalSupply |
-| 48 | 1 | complete |
-| 49 | 32 | creator (v2 only) |
-| 81 | 85 | unmapped tail (v2 only) |
-
-Verified invariant on the captured account:
-
-~~~text
-virtualSolReserves - realSolReserves = 30,000,000,000  (exactly 30 SOL)
-virtualTokenReserves - realTokenReserves = 279,900,000,000,000
-~~~
-
-The token difference is *not* exactly the 280M virtual seed. Integer division floors on every
-trade, so the pair drifts apart by a few hundredths of a percent over the life of a curve. Code
-that assumes "virtual = real + constant" for tokens will be wrong; for SOL it holds exactly.
-
-**Layout order differs between the account and the event.** The account is
-(virtualToken, virtualSol, realToken, realSol). The event is
-(virtualSol, virtualToken, realSol, realToken). Copying one order into the other silently
-swaps two numbers, and a single test against real bytes is what catches it.
+**Multi-quote support exists.** A curve can be quoted in something other than SOL
+(quote_mint is zeroed for SOL). Whitelisted quote mints live in the global account. Any Bark code
+that hardcodes lamports-only pricing will eventually misprice a USDC curve.
 
 ---
 
 ## TradeEvent
 
-**391 bytes including the discriminator** (bddb7fd34ee661ee). The same payload appears twice:
-once as a base64 "Program data:" log line, and once inside an emit_cpi instruction whose
-discriminator is e445a52e51cb9a1d.
+**391 bytes** for a sell, **390** for a buy. Discriminator bddb7fd34ee661ee. The one-byte
+difference is ix_name: "sell" is one character longer than "buy".
 
-| Offset | Size | Field | Captured value |
+That single byte is a gift: it proves the payload ends with a variable-length field and that a
+fixed-size struct assumption is wrong.
+
+| Offset | Size | Field | Captured (sell) |
 | --- | --- | --- | --- |
 | 0 | 32 | mint | C6CSnQ...pump |
-| 32 | 8 | solAmount (gross lamports) | 1,559,679,685 |
-| 40 | 8 | tokenAmount (base units) | 30,428,421,475,159 |
-| 48 | 1 | isBuy | 0 (sell) |
-| 49 | 32 | user | HMjM...W4ag |
-| 81 | 8 | timestamp (unix seconds) | 1,794,147,029 |
-| 89 | 8 | virtualSolReserves | 39,847,511,445 |
-| 97 | 8 | virtualTokenReserves | 807,829,630,484,498 |
-| 105 | 8 | realSolReserves | 9,847,511,445 |
-| 113 | 8 | realTokenReserves | 527,929,630,484,498 |
-| 121 | 32 | feeRecipient | 62qc2CNX...fNgV |
-| 153 | 8 | **v1: feeAmount / v2: creator fee bps** | 95 |
-| 161 | 8 | creator fee | 14,816,958 |
+| 32 | 8 | sol_amount | 1,559,679,685 |
+| 40 | 8 | token_amount | 30,428,421,475,159 |
+| 48 | 1 | is_buy | false |
+| 49 | 32 | user | HMjMJZsQ...W4ag |
+| 81 | 8 | timestamp | 1,794,147,029 |
+| 89 | 8 | virtual_sol_reserves | 39,847,511,445 |
+| 97 | 8 | virtual_token_reserves | 807,829,630,484,498 |
+| 105 | 8 | real_sol_reserves | 9,847,511,445 |
+| 113 | 8 | real_token_reserves | 527,929,630,484,498 |
+| 121 | 32 | fee_recipient | 62qc2CNX...fNgV |
+| 153 | 8 | **fee_basis_points** | **95** |
+| 161 | 8 | fee | 14,816,958 |
 | 169 | 32 | creator | 39a05a05...4f65f |
-| 201 | 182 | unmapped | contains a length-prefixed "sell" string near offset 245 |
+| 201 | 8 | creator_fee_basis_points | 30 |
+| 209 | 8 | creator_fee | 4,679,040 |
+| 217 | 1 | track_volume | false |
+| 218 | 8 | total_unclaimed_tokens | 0 |
+| 226 | 8 | total_claimed_tokens | 0 |
+| 234 | 8 | current_sol_volume | 0 |
+| 242 | 8 | last_update_timestamp | 0 |
+| 250 | 4+4 | ix_name (string) | "sell" |
+| 258 | 1 | mayhem_mode | false |
+| 259 | 8 | cashback_fee_basis_points | 0 |
+| 267 | 8 | cashback | 0 |
+| 275 | 8 | buyback_fee_basis_points | 5000 |
+| 283 | 8 | buyback_fee | 7,408,479 |
+| 291 | 4 | shareholders (vec length) | 0 |
+| 295 | 32 | quote_mint | zeroed |
+| 327 | 8 | quote_amount | 1,559,679,685 |
+| 335 | 8 | virtual_quote_reserves | 39,847,511,445 |
+| 343 | 8 | real_quote_reserves | 9,847,511,445 |
+| 351 | 8 | holder_rewards_bps | 0 |
+| 359 | 8 | holder_rewards | 0 |
+| 367 | 8 | creator_fee_unclaimed | 81,217,357 |
+| 375 | 8 | quote_transfer_fee | 0 |
 
-### The fee-slot change
+Shareholders are (pubkey, u16 share_bps) pairs - 34 bytes each - so the tail after them is not
+at a fixed offset once shareholders exist.
 
-This is the finding that would have shipped a bug.
+### The fee slot that changed meaning
 
-In the documented v1 layout, offset 153 is the protocol fee in lamports. In the v2 payload it
-holds **95** - and 95 bps of 1.559679685 SOL is exactly **14,816,958 lamports**, which is the
-value at offset 161 and exactly what the creator was credited.
+In the old documented layout, offset 153 was the fee **amount**. It is now fee **basis points**.
 
-So the field moved meaning without moving position, and the discriminator stayed the same.
-A decoder written from the old spec would report a 95-lamport protocol fee on every trade.
+A decoder written from the old spec reads 95 where it expects fourteen million, reports a
+95-lamport fee on a 1.5 SOL trade, and every downstream PnL number inherits the error. The
+failure is silent: nothing throws, the number is just wrong by five orders of magnitude.
 
-**Guidance for Bark:** do not compute fees from the event. Reconcile them from native balance
-deltas (they always balance) or from the fee program's own accounts. Use the event for trade
-direction, size and reserve state, which are unambiguous.
+This is the single strongest argument for pinning decoders to real bytes with tests.
 
-### Unmapped tail
+---
 
-Bytes 201..391 contain a u64 (30 in this capture), a value equal to a balance change in the same
-transaction, a run of zeros, and what reads as a Borsh string: 04 00 00 00 followed by "sell".
+## Fee model, measured
 
-It is not decoded here on purpose. Guessing at it would put an untested field into a trading
-surface. The decoder surfaces it as **trailing** so a later pass can finish the job against more
-samples.
+From the captured sell of 1,559,679,685 lamports:
+
+| Component | Rate | Amount | Where it went |
+| --- | --- | --- | --- |
+| protocol fee | 95 bps | 14,816,958 | fee recipient 5LAtLnKd...ANDG |
+| creator fee | 30 bps | 4,679,040 | accrued on the curve (creatorFeeUnclaimed grew) |
+| buyback | 50 bps | 7,408,479 | buyback recipients |
+| user received | - | 1,523,511,448 | trader wallet |
+| network fee | - | 5,000 | validator |
+
+Rounding is **ceil**, not floor:
+
+~~~text
+1,559,679,685 x 95 / 10,000 = 14,816,957.0075 -> 14,816,958
+1,559,679,685 x 30 / 10,000 =  4,679,039.055  ->  4,679,040
+~~~
+
+### Three sources disagree about the creator rate
+
+| Source | creator fee |
+| --- | --- |
+| global account | 5 bps |
+| curve account | 0 bps |
+| trade event | **30 bps** (and the amount charged matches 30 exactly) |
+
+Do not build fee accounting on any single one of these. Reconcile against what actually moved:
+
+~~~ts
+const settlement = reconcileTrade(trade, transaction);
+settlement.userDelta;     // what the trader really received
+settlement.totalCosts;    // gross - received: fees, rent and network fee
+settlement.credits;       // every account that gained lamports
+~~~
+
+On the captured trade, totalCosts is 36,168,237 lamports while the named fees sum to
+35,897,834. The 265,403 difference is account rent, not a fee. A PnL view that models
+"gross minus protocol minus creator" would be wrong by exactly that much on every trade.
+
+---
+
+## Curve math
+
+Constant product over virtual reserves, floored on output:
+
+~~~text
+buy:   net     = quoteIn - ceil(fees)
+       newVQ   = vQuote + net
+       tokens  = vTokens - (vQuote * vTokens) / newVQ
+
+sell:  newVT   = vTokens + tokensIn
+       gross   = vQuote - (vQuote * vTokens) / newVT
+       payout  = gross - ceil(fees)
+~~~
+
+Graduation is **derived, not hardcoded**. The curve completes when real token reserves reach
+zero, so:
+
+~~~text
+gap       = 1,073,000,000,000,000 - 793,100,000,000,000 = 279,900,000,000,000
+k         = 30,000,000,000 x 1,073,000,000,000,000
+vQuoteF   = k / gap = 115,005,359,056
+threshold = vQuoteF - 30,000,000,000 = 85,005,359,056
+~~~
+
+So "85 SOL" is 5,359,056 lamports short of the real completion point. Small, but it is the kind
+of constant that silently becomes wrong the moment launch parameters change. Compute it.
 
 ---
 
 ## Instruction discriminators
 
-| Instruction | Discriminator | Confidence |
+| Instruction | Discriminator | Verified |
 | --- | --- | --- |
-| sell | 33e685a4017f83ad | observed (24-byte data: amount + min_out) |
-| buy | 66063d1201daebea | documented, not re-verified |
-| create | 181ec828051c0777 | documented, not re-verified |
-| emit_cpi envelope | e445a52e51cb9a1d | observed |
+| create | 181ec828051c0777 | IDL |
+| create_v2 | d6904cec5f8b31b4 | mainnet |
+| buy | 66063d1201daebea | IDL |
+| buy_v2 | b817ee6167c5d33d | mainnet |
+| buy_exact_sol_in | 38fc74089edfcd5f | IDL |
+| sell | 33e685a4017f83ad | mainnet |
+| sell_v2 | 5df6823ce7e940b2 | IDL |
+| migrate | 9beae792ec9ea21e | IDL |
+| migrate_v2 | bbcb121fceedfe29 | IDL |
+| collect_creator_fee | 1416567bc61cdb84 | IDL |
+| emit_cpi envelope | e445a52e51cb9a1d | mainnet |
 
-The router's own instructions carry different discriminators (e0c76373cce112b2 for the sell
-path observed in this capture). Do not key off the router: its surface is the most volatile part
-of the stack.
-
----
-
-## PDA derivation
-
-The classic curve address is derived from seeds ( "bonding-curve", mint ) under 6EF8.
-The implementation in this repo is validated end-to-end against a real associated token account
-(same ed25519 off-curve test, same hash layout), because a wrong curve check fails silently and
-produces addresses that simply never resolve.
-
-One caveat worth carrying forward: the captured 166-byte curve account
-(DGfgKzva...Mn5GB) is **not** reproducible from the classic seed set or from any obvious
-(mint, creator) variant tried here. Either the v2 router derives it under a different seed
-namespace, or the account belongs to an earlier curve generation. Index curve accounts from
-transactions rather than deriving them, until that is settled.
+The router has its own discriminators (e0c76373cce112b2 on the observed sell path). Do not key
+off the router; it is the most volatile layer in the stack.
 
 ---
 
-## What a Bark launchpad should copy, and what it should not
+## Correction log
 
-Copy:
+What the first pass got wrong, and why it matters:
 
-- Constant-product over virtual reserves, with the virtual/real split made visible in the UI.
-- Creator fee quoted separately from protocol fee, in basis points, before the curve math.
-- A graduation threshold expressed in **real SOL**, checked against the same reserve the curve uses.
-- Token-2022 from day one, with the mint authority and freeze authority both revoked at creation.
+| First conclusion | Actual |
+| --- | --- |
+| offset 153 was feeAmount, repurposed to creator fee bps | it is fee_basis_points; the amount is at 161 |
+| the 391-byte payload had ~180 unmapped trailing bytes | all 383 body bytes are named fields |
+| the 49-byte curve layout was current | current curves are 166 bytes with creator, quote mint and fee bookkeeping |
+| graduation is 85 SOL | derived threshold is 85,005,359,056 lamports |
+| account vs event reserve order differs arbitrarily | the account tracks (token, quote) pairs, the event tracks (sol, token) pairs; both are correct, the naming differs |
 
-Do not copy:
-
-- Reusing a discriminator for a payload whose semantics changed. Version the event.
-- Putting fee values in a field that used to mean something else.
-- Emitting the same event twice (log + emit_cpi) without a sequence number to de-duplicate on.
+Each of these was caught by decoding captured bytes and checking that the result consumes the
+input exactly. That check should be in every decoder that touches money.
 
 ---
 
 ## Open questions
 
-1. What are bytes 201..391 of the TradeEvent?
-2. How is the v2 curve account derived?
-3. Why does Global report 95 bps while the trade log reports fee_bps=100?
-4. Is there a formal migration event, or does the curve simply flip **complete** to 1?
+1. Why does the curve account report creator_fee_bps = 0 while the trade charges 30 bps?
+2. Why does the router log fee_bps = 100 when the protocol fee is 95 bps?
+3. The captured 166-byte curve (DGfgKzva...Mn5GB) is not reproducible from the classic
+   bonding-curve seed set or from obvious (mint, creator) variants. Index curves from
+   transactions rather than deriving them until this is settled.
+4. Shareholder-vector events have not been observed yet; the decoder handles them but the
+   offsets are untested against a live sample.

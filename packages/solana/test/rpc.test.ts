@@ -86,6 +86,23 @@ test("gives up after the retry budget", async () => {
   assert.equal(attempt, 3);
 });
 
+test("requests version-1 transactions by default", async () => {
+  let body = "";
+  const rpc = new SolanaRpc({
+    endpoint: "https://example.invalid",
+    fetch: async (_input, init) => {
+      body = String(init?.body);
+      return jsonResponse({ jsonrpc: "2.0", id: 1, result: null });
+    },
+  });
+
+  await rpc.getTransaction("sig");
+  assert.match(body, /"maxSupportedTransactionVersion":1/);
+
+  await rpc.getTransaction("sig", { version: 0 });
+  assert.match(body, /"maxSupportedTransactionVersion":0/);
+});
+
 test("normalises multiple accounts responses", async () => {
   const rpc = new SolanaRpc({
     endpoint: "https://example.invalid",

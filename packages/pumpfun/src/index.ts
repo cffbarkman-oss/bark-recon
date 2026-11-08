@@ -11,3 +11,4 @@ export * from "./curve.js";
 export * from "./events.js";
 export * from "./parse.js";
 export * from "./programs.js";
+export * from "./settlement.js";

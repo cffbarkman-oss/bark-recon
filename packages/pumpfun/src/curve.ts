@@ -1,58 +1,57 @@
-import { BPS_DENOMINATOR, mulDivFloor, ratio } from "@bark/solana";
+import { BPS_DENOMINATOR, mulDivCeil, mulDivFloor, ratio } from "@bark/solana";
 
 /**
  * Bonding-curve pricing.
  *
- * pump.fun runs a constant-product curve over *virtual* reserves. SOL dust is
- * held in lamports, tokens in base units; all arithmetic is integer.
+ * pump.fun runs a constant-product curve over *virtual* reserves. Quote-side
+ * amounts are lamports for SOL curves; base-side amounts are token base units.
+ * Every quantity is an integer and every division floors exactly like the
+ * on-chain program, with one exception: fees round up (see feeBreakdown).
  *
- * Invariants this module preserves:
- *   - Outputs are floored exactly like the on-chain program, so a quote is
- *     always achievable (never one unit optimistic).
- *   - k = virtualTokenReserves * virtualSolReserves therefore drops by less
- *     than one unit of the opposite reserve per trade - never grows, never
- *     collapses.
- *   - A buy followed by a sell of the same output never returns more SOL.
+ * Invariants preserved here:
+ *   - a quoted output is always achievable (never one unit optimistic)
+ *   - a buy followed by a sell of the same tokens never returns more quote
+ *   - the constant product only shrinks by less than one division unit
  */
 
+/** Reserves as they appear on chain. */
 export interface CurveState {
   virtualTokenReserves: bigint;
-  virtualSolReserves: bigint;
+  virtualQuoteReserves: bigint;
   realTokenReserves: bigint;
-  realSolReserves: bigint;
+  realQuoteReserves: bigint;
   tokenTotalSupply: bigint;
   complete: boolean;
 }
 
 export interface CurveParams {
-  /** Virtual SOL seeded into every curve, in lamports. */
-  initialVirtualSolReserves: bigint;
-  /** Virtual token supply seeded into every curve, in base units. */
+  initialVirtualQuoteReserves: bigint;
   initialVirtualTokenReserves: bigint;
-  /** Total minted supply, in base units. */
+  initialRealTokenReserves: bigint;
   tokenTotalSupply: bigint;
-  /** Real SOL required before a curve graduates, in lamports. */
-  graduationSolReserves: bigint;
-  /** Protocol fee in basis points, charged on the SOL side of a trade. */
+  /** Protocol fee in basis points, read from the global account (95 observed). */
   protocolFeeBps: number;
-  /** Creator fee in basis points, charged on the SOL side of a trade. */
+  /**
+   * Creator fee in basis points. Read this from the trade event rather than
+   * trusting a single source: the captured launch charged 30 bps while the
+   * curve account field read 0 and the global default was 5.
+   */
   creatorFeeBps: number;
 }
 
 /**
- * Defaults observed on mainnet for a current-era launch.
+ * Launch parameters observed on mainnet (global account, 2026-11-08).
  *
- * The 30 SOL / 1.073B virtual seed and the 85 SOL graduation threshold are the
- * long-standing pump.fun parameters; the 95 bps creator fee was read directly
- * out of a live TradeEvent.
+ * These are the numbers a Bark launchpad should reproduce or deliberately
+ * diverge from - they are not arbitrary defaults.
  */
 export const DEFAULT_CURVE_PARAMS: CurveParams = {
-  initialVirtualSolReserves: 30_000_000_000n,
+  initialVirtualQuoteReserves: 30_000_000_000n,
   initialVirtualTokenReserves: 1_073_000_000_000_000n,
+  initialRealTokenReserves: 793_100_000_000_000n,
   tokenTotalSupply: 1_000_000_000_000_000n,
-  graduationSolReserves: 85_000_000_000n,
-  protocolFeeBps: 100,
-  creatorFeeBps: 95,
+  protocolFeeBps: 95,
+  creatorFeeBps: 30,
 };
 
 export interface FeeBreakdown {
@@ -63,25 +62,29 @@ export interface FeeBreakdown {
 }
 
 export interface Quote {
-  /** SOL entering (buy) or leaving (sell) the curve, before fees. */
-  grossSol: bigint;
+  /** Quote amount entering (buy) or leaving (sell) the curve, before fees. */
+  grossQuote: bigint;
   fees: FeeBreakdown;
-  /** Tokens bought or sold. */
   tokens: bigint;
-  /** State after the trade is applied. */
   state: CurveState;
   priceBefore: number;
   priceAfter: number;
-  /** Price impact as a signed fraction of the pre-trade spot price. */
+  /** Signed fraction of the pre-trade spot price. */
   priceImpact: number;
 }
 
+/**
+ * Splits a trade's quote side into protocol and creator fees.
+ *
+ * Fees round **up**. Verified on chain: 1,559,679,685 lamports at 95 bps gives
+ * 14,816,958 (not 14,816,957), and 30 bps gives 4,679,040 (not 4,679,039).
+ */
 export function feeBreakdown(
   amount: bigint,
   params: Pick<CurveParams, "protocolFeeBps" | "creatorFeeBps">,
 ): FeeBreakdown {
-  const protocol = mulDivFloor(amount, BigInt(params.protocolFeeBps), BPS_DENOMINATOR);
-  const creator = mulDivFloor(amount, BigInt(params.creatorFeeBps), BPS_DENOMINATOR);
+  const protocol = mulDivCeil(amount, BigInt(params.protocolFeeBps), BPS_DENOMINATOR);
+  const creator = mulDivCeil(amount, BigInt(params.creatorFeeBps), BPS_DENOMINATOR);
   return {
     total: protocol + creator,
     protocol,
@@ -90,84 +93,114 @@ export function feeBreakdown(
   };
 }
 
-export function initialCurveState(
-  params: CurveParams = DEFAULT_CURVE_PARAMS,
-): CurveState {
+export function initialCurveState(params: CurveParams = DEFAULT_CURVE_PARAMS): CurveState {
   return {
     virtualTokenReserves: params.initialVirtualTokenReserves,
-    virtualSolReserves: params.initialVirtualSolReserves,
-    realTokenReserves: params.initialVirtualTokenReserves,
-    realSolReserves: 0n,
+    virtualQuoteReserves: params.initialVirtualQuoteReserves,
+    realTokenReserves: params.initialRealTokenReserves,
+    realQuoteReserves: 0n,
     tokenTotalSupply: params.tokenTotalSupply,
     complete: false,
   };
 }
 
-/** Constant product, floored: the exact quantity the program divides by. */
-export function invariant(state: Pick<CurveState, "virtualTokenReserves" | "virtualSolReserves">): bigint {
-  return state.virtualTokenReserves * state.virtualSolReserves;
+export function invariant(
+  state: Pick<CurveState, "virtualTokenReserves" | "virtualQuoteReserves">,
+): bigint {
+  return state.virtualTokenReserves * state.virtualQuoteReserves;
 }
 
-/** Lamports per whole token, as a float (display / analytics only). */
-export function spotPriceSolPerToken(state: CurveState): number {
-  return Number(state.virtualSolReserves) / Number(state.virtualTokenReserves);
+/**
+ * Spot price in whole quote units per whole token.
+ *
+ * For a SOL curve this is SOL per token: reserves are lamports and base units
+ * are 6-decimal token units, so both sides are normalised before dividing.
+ */
+export function spotPrice(
+  state: CurveState,
+  quoteDecimals = 9,
+  tokenDecimals = 6,
+): number {
+  const quote = Number(state.virtualQuoteReserves) / 10 ** quoteDecimals;
+  const tokens = Number(state.virtualTokenReserves) / 10 ** tokenDecimals;
+  return tokens === 0 ? 0 : quote / tokens;
 }
 
-/** Exact spot price as a rational, for callers that need no float rounding. */
+/** Exact spot price as a rational in the same units as spotPrice. */
 export function spotPriceExact(
   state: CurveState,
-  decimals = 6,
+  quoteDecimals = 9,
+  tokenDecimals = 6,
 ): { numerator: bigint; denominator: bigint } {
   return {
-    numerator: state.virtualSolReserves * 10n ** BigInt(decimals),
-    denominator: state.virtualTokenReserves,
+    numerator: state.virtualQuoteReserves * 10n ** BigInt(tokenDecimals),
+    denominator: state.virtualTokenReserves * 10n ** BigInt(quoteDecimals),
   };
 }
 
-/** Fully-diluted market cap in lamports, derived from virtual reserves. */
-export function marketCapLamports(state: CurveState): bigint {
-  return mulDivFloor(state.virtualSolReserves, state.tokenTotalSupply, state.virtualTokenReserves);
+/** Fully-diluted market cap in quote lamports, from virtual reserves. */
+export function marketCapQuote(state: CurveState): bigint {
+  return mulDivFloor(state.virtualQuoteReserves, state.tokenTotalSupply, state.virtualTokenReserves);
 }
 
-/** Fraction of the graduation threshold already raised, clamped to [0, 1]. */
+/**
+ * Quote reserves at which a curve completes.
+ *
+ * Derived, not hardcoded: the curve finishes when real token reserves reach
+ * zero, so virtual tokens equal the initial virtual/real gap and the quote
+ * reserve follows from the constant product. With the observed parameters this
+ * lands on 85,005,359,056 lamports - the familiar "85 SOL" graduation, with
+ * 5,359,056 lamports of integer dust that a hardcoded constant hides.
+ */
+export function completionQuoteReserves(params: CurveParams = DEFAULT_CURVE_PARAMS): bigint {
+  const gap = params.initialVirtualTokenReserves - params.initialRealTokenReserves;
+  if (gap <= 0n) {
+    throw new RangeError("Initial real token reserves must be below virtual reserves");
+  }
+  const k = params.initialVirtualQuoteReserves * params.initialVirtualTokenReserves;
+  const virtualQuoteAtCompletion = k / gap;
+  return virtualQuoteAtCompletion - params.initialVirtualQuoteReserves;
+}
+
+/** Fraction of the completion threshold already raised, clamped to [0, 1]. */
 export function graduationProgress(
   state: CurveState,
   params: CurveParams = DEFAULT_CURVE_PARAMS,
 ): number {
-  if (params.graduationSolReserves === 0n) {
+  const target = completionQuoteReserves(params);
+  if (target <= 0n) {
     return 0;
   }
-  const progress = ratio(state.realSolReserves, params.graduationSolReserves);
-  return Math.min(1, Math.max(0, progress));
+  return Math.min(1, Math.max(0, ratio(state.realQuoteReserves, target)));
 }
 
 export function quoteBuy(
   state: CurveState,
-  solIn: bigint,
+  quoteIn: bigint,
   params: CurveParams = DEFAULT_CURVE_PARAMS,
 ): Quote {
-  if (solIn < 0n) {
-    throw new RangeError("solIn must be non-negative");
+  if (quoteIn < 0n) {
+    throw new RangeError("quoteIn must be non-negative");
   }
-  const fees = feeBreakdown(solIn, params);
+  const fees = feeBreakdown(quoteIn, params);
   const net = fees.net;
   const k = invariant(state);
-  const newVirtualSol = state.virtualSolReserves + net;
-  const newVirtualTokens = k / newVirtualSol;
+  const newVirtualQuote = state.virtualQuoteReserves + net;
+  const newVirtualTokens = k / newVirtualQuote;
   const tokensOut = state.virtualTokenReserves - newVirtualTokens;
 
   const nextState: CurveState = {
     ...state,
-    virtualSolReserves: newVirtualSol,
+    virtualQuoteReserves: newVirtualQuote,
     virtualTokenReserves: newVirtualTokens,
-    realSolReserves: state.realSolReserves + net,
+    realQuoteReserves: state.realQuoteReserves + net,
     realTokenReserves: state.realTokenReserves - tokensOut,
   };
 
-  const priceBefore = spotPriceSolPerToken(state);
-  const priceAfter = spotPriceSolPerToken(nextState);
+  const priceBefore = spotPrice(state);
+  const priceAfter = spotPrice(nextState);
   return {
-    grossSol: solIn,
+    grossQuote: quoteIn,
     fees,
     tokens: tokensOut,
     state: nextState,
@@ -187,23 +220,22 @@ export function quoteSell(
   }
   const k = invariant(state);
   const newVirtualTokens = state.virtualTokenReserves + tokensIn;
-  const newVirtualSol = k / newVirtualTokens;
-  const grossSol = state.virtualSolReserves - newVirtualSol;
-  const fees = feeBreakdown(grossSol, params);
-  const net = fees.net;
+  const newVirtualQuote = k / newVirtualTokens;
+  const grossQuote = state.virtualQuoteReserves - newVirtualQuote;
+  const fees = feeBreakdown(grossQuote, params);
 
   const nextState: CurveState = {
     ...state,
-    virtualSolReserves: newVirtualSol,
+    virtualQuoteReserves: newVirtualQuote,
     virtualTokenReserves: newVirtualTokens,
-    realSolReserves: state.realSolReserves - net,
+    realQuoteReserves: state.realQuoteReserves - fees.net,
     realTokenReserves: state.realTokenReserves + tokensIn,
   };
 
-  const priceBefore = spotPriceSolPerToken(state);
-  const priceAfter = spotPriceSolPerToken(nextState);
+  const priceBefore = spotPrice(state);
+  const priceAfter = spotPrice(nextState);
   return {
-    grossSol,
+    grossQuote,
     fees,
     tokens: tokensIn,
     state: nextState,
@@ -213,7 +245,7 @@ export function quoteSell(
   };
 }
 
-/** SOL required to buy exactly N tokens, fees included. */
+/** Quote required to buy exactly N tokens, fees included. */
 export function quoteBuyForTokens(
   state: CurveState,
   tokensOut: bigint,
@@ -224,15 +256,13 @@ export function quoteBuyForTokens(
   if (newVirtualTokens <= 0n) {
     throw new RangeError("Cannot buy the entire remaining curve supply");
   }
-  const newVirtualSol = k / newVirtualTokens + 1n;
-  const net = newVirtualSol - state.virtualSolReserves;
-  const feeBps = params.protocolFeeBps + params.creatorFeeBps;
-  // gross = net / (1 - fee), solved in integers with a ceiling.
-  const denominator = BPS_DENOMINATOR - BigInt(feeBps);
+  const newVirtualQuote = k / newVirtualTokens + 1n;
+  const net = newVirtualQuote - state.virtualQuoteReserves;
+  const feeBps = BigInt(params.protocolFeeBps + params.creatorFeeBps);
+  const denominator = BPS_DENOMINATOR - feeBps;
   return (net * BPS_DENOMINATOR + denominator - 1n) / denominator;
 }
 
-/** Applies a slippage tolerance to a quoted minimum output. */
 export function minimumOut(amount: bigint, slippageBps: number): bigint {
   if (slippageBps < 0 || BigInt(slippageBps) >= BPS_DENOMINATOR) {
     throw new RangeError("slippageBps out of range");
@@ -240,7 +270,6 @@ export function minimumOut(amount: bigint, slippageBps: number): bigint {
   return mulDivFloor(amount, BPS_DENOMINATOR - BigInt(slippageBps), BPS_DENOMINATOR);
 }
 
-/** Applies a slippage tolerance to a quoted maximum input. */
 export function maximumIn(amount: bigint, slippageBps: number): bigint {
   if (slippageBps < 0 || BigInt(slippageBps) >= BPS_DENOMINATOR) {
     throw new RangeError("slippageBps out of range");

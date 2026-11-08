@@ -1,18 +1,23 @@
 import { PublicKey, type RpcInstruction, type RpcTransaction } from "@bark/solana";
 import { DISCRIMINATORS, PUMP_PROGRAM_ID, PUMP_ROUTER_PROGRAM_ID } from "./programs.js";
-import { decodeTradeEvent, type TradeEvent } from "./events.js";
+import {
+  decodePumpEvent,
+  type CreateEvent,
+  type Shareholder,
+  type TradeEvent,
+} from "./events.js";
 
 /**
  * Transaction parsing.
  *
  * Strategy: decode the program's own events, never its instruction arguments.
- * The instruction surface changes between program versions (and now goes
- * through a router), while the TradeEvent payload stays decodable.
+ * The instruction surface changes between versions and now routes through a
+ * second program; the event payload stays decodable.
  *
- * Events arrive twice in current transactions: as a base64 "Program data:" log
- * line, and inside an emit_cpi instruction. Logs are read first and inner
- * instructions are only consulted when no log event exists, so a trade is
- * never counted twice.
+ * Current transactions carry each event twice - once as a base64
+ * "Program data:" log line, once inside an emit_cpi instruction. Logs win, and
+ * inner instructions are only consulted when no log event exists, so nothing
+ * is counted twice.
  */
 
 const PROGRAM_DATA_PREFIX = "Program data: ";
@@ -24,16 +29,65 @@ export interface PumpTrade {
   kind: "buy" | "sell";
   mint: PublicKey;
   user: PublicKey;
+  creator: PublicKey | null;
+  feeRecipient: PublicKey;
   solAmount: bigint;
   tokenAmount: bigint;
-  feeRecipient: PublicKey;
-  creator: PublicKey | null;
+  feeBasisPoints: number;
+  fee: bigint;
+  creatorFeeBasisPoints: number;
+  creatorFee: bigint;
+  quoteMint: PublicKey | null;
+  quoteAmount: bigint;
   virtualSolReserves: bigint;
   virtualTokenReserves: bigint;
   realSolReserves: bigint;
   realTokenReserves: bigint;
+  virtualQuoteReserves: bigint;
+  realQuoteReserves: bigint;
   timestamp: number;
+  ixName: string;
+  mayhemMode: boolean;
+  cashback: bigint;
+  buybackFee: bigint;
+  shareholders: Shareholder[];
   layout: "v1" | "v2";
+}
+
+export interface PumpCreate {
+  signature: string;
+  slot: number;
+  blockTime: number | null;
+  name: string;
+  symbol: string;
+  uri: string;
+  mint: PublicKey;
+  bondingCurve: PublicKey;
+  user: PublicKey;
+  creator: PublicKey;
+  tokenProgram: PublicKey;
+  timestamp: number;
+  virtualQuoteReserves: bigint;
+  virtualTokenReserves: bigint;
+  realTokenReserves: bigint;
+  tokenTotalSupply: bigint;
+  quoteMint: PublicKey | null;
+  creatorFeeBps: bigint;
+  isMayhemMode: boolean;
+  isCashbackEnabled: boolean;
+  isHolderReward: boolean;
+  depth: number;
+}
+
+export interface PumpCompletion {
+  signature: string;
+  slot: number;
+  blockTime: number | null;
+  mint: PublicKey;
+  bondingCurve: PublicKey;
+  user: PublicKey;
+  timestamp: number;
+  quoteMint: PublicKey | null;
 }
 
 export interface ParsedPumpTransaction {
@@ -43,34 +97,98 @@ export interface ParsedPumpTransaction {
   failed: boolean;
   computeUnits: number | null;
   trades: PumpTrade[];
+  creates: PumpCreate[];
+  completions: PumpCompletion[];
 }
 
-function tradeKey(trade: { mint: PublicKey; user: PublicKey; solAmount: bigint }): string {
-  return trade.mint.toBase58() + ":" + trade.user.toBase58() + ":" + trade.solAmount.toString();
+interface Context {
+  signature: string;
+  slot: number;
+  blockTime: number | null;
 }
 
-function toPumpTrade(
-  event: TradeEvent,
-  context: { signature: string; slot: number; blockTime: number | null },
-): PumpTrade {
-  const kind = event.isBuy ? "buy" : "sell";
-  return {
+function toTrade(event: TradeEvent, context: Context): PumpTrade {
+  const base = {
     signature: context.signature,
     slot: context.slot,
     blockTime: context.blockTime,
-    kind,
+    kind: (event.isBuy ? "buy" : "sell") as "buy" | "sell",
     mint: event.mint,
     user: event.user,
+    feeRecipient: event.feeRecipient,
     solAmount: event.solAmount,
     tokenAmount: event.tokenAmount,
-    feeRecipient: event.feeRecipient,
-    creator: event.layout === "v2" ? event.creator : null,
     virtualSolReserves: event.virtualSolReserves,
     virtualTokenReserves: event.virtualTokenReserves,
     realSolReserves: event.realSolReserves,
     realTokenReserves: event.realTokenReserves,
     timestamp: event.timestamp,
     layout: event.layout,
+  };
+
+  if (event.layout === "v1") {
+    return {
+      ...base,
+      creator: null,
+      feeBasisPoints: 0,
+      fee: event.feeAmount,
+      creatorFeeBasisPoints: 0,
+      creatorFee: event.creatorFee,
+      quoteMint: null,
+      quoteAmount: event.solAmount,
+      virtualQuoteReserves: event.virtualSolReserves,
+      realQuoteReserves: event.realSolReserves,
+      ixName: event.isBuy ? "buy" : "sell",
+      mayhemMode: false,
+      cashback: 0n,
+      buybackFee: 0n,
+      shareholders: [],
+    };
+  }
+
+  return {
+    ...base,
+    creator: event.creator,
+    feeBasisPoints: event.feeBasisPoints,
+    fee: event.fee,
+    creatorFeeBasisPoints: event.creatorFeeBasisPoints,
+    creatorFee: event.creatorFee,
+    quoteMint: event.quoteMint,
+    quoteAmount: event.quoteAmount,
+    virtualQuoteReserves: event.virtualQuoteReserves,
+    realQuoteReserves: event.realQuoteReserves,
+    ixName: event.ixName,
+    mayhemMode: event.mayhemMode,
+    cashback: event.cashback,
+    buybackFee: event.buybackFee,
+    shareholders: event.shareholders,
+  };
+}
+
+function toCreate(event: CreateEvent, context: Context): PumpCreate {
+  return {
+    signature: context.signature,
+    slot: context.slot,
+    blockTime: context.blockTime,
+    name: event.name,
+    symbol: event.symbol,
+    uri: event.uri,
+    mint: event.mint,
+    bondingCurve: event.bondingCurve,
+    user: event.user,
+    creator: event.creator,
+    tokenProgram: event.tokenProgram,
+    timestamp: event.timestamp,
+    virtualQuoteReserves: event.virtualQuoteReserves,
+    virtualTokenReserves: event.virtualTokenReserves,
+    realTokenReserves: event.realTokenReserves,
+    tokenTotalSupply: event.tokenTotalSupply,
+    quoteMint: event.quoteMint,
+    creatorFeeBps: event.creatorFeeBps,
+    isMayhemMode: event.isMayhemMode,
+    isCashbackEnabled: event.isCashbackEnabled,
+    isHolderReward: event.isHolderReward,
+    depth: event.depth,
   };
 }
 
@@ -84,11 +202,10 @@ export interface ParseOptions {
 }
 
 /**
- * Parses a confirmed transaction into trades.
+ * Parses a confirmed transaction into typed pump.fun activity.
  *
- * Returns an empty list for unrelated transactions rather than throwing -
- * callers routinely stream every transaction of a wallet and only care about
- * the ones that touched a curve.
+ * Returns empty arrays for unrelated transactions rather than throwing -
+ * callers routinely stream every transaction of a wallet or block.
  */
 export function parsePumpTransaction(
   transaction: RpcTransaction,
@@ -99,48 +216,60 @@ export function parsePumpTransaction(
   const blockTime = transaction.blockTime ?? null;
   const meta = transaction.meta;
   const logs = meta?.logMessages ?? [];
+  const context: Context = { signature, slot, blockTime };
 
   const trades: PumpTrade[] = [];
-  const seen = new Set<string>();
+  const creates: PumpCreate[] = [];
+  const completions: PumpCompletion[] = [];
+  const seenTrades = new Set<string>();
+
+  const ingest = (payload: Uint8Array): void => {
+    let decoded: ReturnType<typeof decodePumpEvent>;
+    try {
+      decoded = decodePumpEvent(payload);
+    } catch {
+      return;
+    }
+    if (decoded.kind === "trade") {
+      const trade = toTrade(decoded.event, context);
+      const key = trade.mint.toBase58() + ":" + trade.user.toBase58() + ":" + trade.solAmount.toString();
+      if (!seenTrades.has(key)) {
+        seenTrades.add(key);
+        trades.push(trade);
+      }
+      return;
+    }
+    if (decoded.kind === "create") {
+      creates.push(toCreate(decoded.event, context));
+      return;
+    }
+    if (decoded.kind === "complete") {
+      completions.push({
+        signature,
+        slot,
+        blockTime,
+        mint: decoded.event.mint,
+        bondingCurve: decoded.event.bondingCurve,
+        user: decoded.event.user,
+        timestamp: decoded.event.timestamp,
+        quoteMint: decoded.event.quoteMint,
+      });
+    }
+  };
 
   for (const line of logs) {
     if (!line.startsWith(PROGRAM_DATA_PREFIX)) {
       continue;
     }
-    let payload: Uint8Array;
     try {
-      payload = decodeBase64(line.slice(PROGRAM_DATA_PREFIX.length));
-    } catch {
-      continue;
-    }
-    if (payload.length < 8) {
-      continue;
-    }
-    let isTrade = true;
-    for (let i = 0; i < 8; i += 1) {
-      if (payload[i] !== Number.parseInt(DISCRIMINATORS.tradeEvent.slice(i * 2, i * 2 + 2), 16)) {
-        isTrade = false;
-        break;
-      }
-    }
-    if (!isTrade) {
-      continue;
-    }
-    try {
-      const event = decodeTradeEvent(payload);
-      const trade = toPumpTrade(event, { signature, slot, blockTime });
-      const key = tradeKey(trade);
-      if (!seen.has(key)) {
-        seen.add(key);
-        trades.push(trade);
-      }
+      ingest(decodeBase64(line.slice(PROGRAM_DATA_PREFIX.length)));
     } catch {
       continue;
     }
   }
 
-  if (trades.length === 0) {
-    collectFromInnerInstructions(transaction, options, trades, seen);
+  if (trades.length === 0 && creates.length === 0) {
+    collectFromInnerInstructions(transaction, options, ingest);
   }
 
   return {
@@ -150,69 +279,47 @@ export function parsePumpTransaction(
     failed: meta?.err !== null && meta?.err !== undefined,
     computeUnits: meta?.computeUnitsConsumed ?? null,
     trades,
+    creates,
+    completions,
   };
 }
 
 function collectFromInnerInstructions(
   transaction: RpcTransaction,
   options: ParseOptions,
-  trades: PumpTrade[],
-  seen: Set<string>,
+  ingest: (payload: Uint8Array) => void,
 ): void {
-  const accepted = options.programIds ?? [PUMP_PROGRAM_ID, PUMP_ROUTER_PROGRAM_ID];
+  const accepted = (options.programIds ?? [PUMP_PROGRAM_ID, PUMP_ROUTER_PROGRAM_ID]).map((id) =>
+    id.toBase58(),
+  );
   const groups = transaction.meta?.innerInstructions ?? [];
-  const context = {
-    signature: transaction.transaction.signatures[0] ?? "",
-    slot: transaction.slot,
-    blockTime: transaction.blockTime ?? null,
-  };
-
   for (const group of groups) {
     for (const instruction of group.instructions ?? []) {
-      const programId = (instruction as RpcInstruction).programId;
-      if (programId === undefined) {
+      const typed = instruction as RpcInstruction;
+      if (typed.programId === undefined || !accepted.includes(typed.programId)) {
         continue;
       }
-      let allowed = false;
-      for (const candidate of accepted) {
-        if (candidate.toBase58() === programId) {
-          allowed = true;
-          break;
-        }
-      }
-      if (!allowed || typeof instruction.data !== "string") {
+      if (typeof typed.data !== "string") {
         continue;
       }
       let payload: Uint8Array;
       try {
-        payload = decodeBase64(instruction.data);
+        payload = decodeBase64(typed.data);
       } catch {
         continue;
       }
       if (payload.length <= 8) {
         continue;
       }
-      const isEventCpi = DISCRIMINATORS.eventCpi;
       let matches = true;
       for (let i = 0; i < 8; i += 1) {
-        if (payload[i] !== Number.parseInt(isEventCpi.slice(i * 2, i * 2 + 2), 16)) {
+        if (payload[i] !== Number.parseInt(DISCRIMINATORS.eventCpi.slice(i * 2, i * 2 + 2), 16)) {
           matches = false;
           break;
         }
       }
-      if (!matches) {
-        continue;
-      }
-      try {
-        const event = decodeTradeEvent(payload.slice(8));
-        const trade = toPumpTrade(event, context);
-        const key = tradeKey(trade);
-        if (!seen.has(key)) {
-          seen.add(key);
-          trades.push(trade);
-        }
-      } catch {
-        continue;
+      if (matches) {
+        ingest(payload.slice(8));
       }
     }
   }
@@ -222,11 +329,14 @@ function collectFromInnerInstructions(
 export function parsePumpLogs(
   logs: string[],
   context: { signature: string; slot: number; blockTime?: number | null },
-): PumpTrade[] {
+): ParsedPumpTransaction {
   return parsePumpTransaction({
     slot: context.slot,
     blockTime: context.blockTime ?? null,
     meta: { err: null, fee: 0, preBalances: [], postBalances: [], logMessages: logs },
-    transaction: { message: { accountKeys: [], instructions: [] }, signatures: [context.signature] },
-  }).trades;
+    transaction: {
+      message: { accountKeys: [], instructions: [] },
+      signatures: [context.signature],
+    },
+  });
 }
