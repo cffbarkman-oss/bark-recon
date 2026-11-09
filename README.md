@@ -36,6 +36,7 @@ So that is what this repo does, and then packages the result as reusable code.
 | [@bark/venues](packages/venues) | one adapter interface over Jupiter, DexScreener, pump.fun, fomo, Axiom | @bark/solana |
 | [@bark/pumpswap](packages/pumpswap) | the AMM graduated tokens trade on: pool + swap + graduation decoding, exact pricing | @bark/solana |
 | [@bark/bags](packages/bags) | bags.fm swap instruction shapes, the part they make decodable | @bark/solana |
+| [@bark/execution](packages/execution) | order lifecycle (quoted to landed) and settlement reconciliation | @bark/solana |
 | [@bark/cli](packages/cli) | `bark-recon capture` / `curve` / `holders` for live debugging | all of the above |
 
 Also in the repo: a [competitive landscape](docs/competitors.md) built from the same observation
@@ -75,7 +76,7 @@ npm run build
 npm test
 ~~~
 
-All 155 tests run offline. No API keys, no RPC endpoint, no network.
+All 183 tests run offline. No API keys, no RPC endpoint, no network.
 
 Then, against a live endpoint:
 

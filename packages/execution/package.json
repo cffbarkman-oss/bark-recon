@@ -1,0 +1,19 @@
+{
+  "name": "@bark/execution",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Order lifecycle and settlement reconciliation: quoted, signed, submitted, landed, failed, expired.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@bark/solana": "0.1.0"
+  }
+}
